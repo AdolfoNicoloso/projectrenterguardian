@@ -1,0 +1,155 @@
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
+import { spacing, typography } from '../theme';
+import { useTheme } from '../theme/useTheme';
+import { PRGButton } from './PRGButton';
+
+interface PRGEditableTextRowProps {
+  label: string;
+  value: string;
+  onSave?: (value: string) => void;
+  placeholder?: string;
+  editable?: boolean;
+  required?: boolean;
+}
+
+export const PRGEditableTextRow: React.FC<PRGEditableTextRowProps> = ({
+  label,
+  value,
+  onSave,
+  placeholder,
+  editable = true,
+  required = false,
+}) => {
+  const { colors } = useTheme();
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(value);
+
+  const handleSave = () => {
+    if (onSave && editValue.trim()) {
+      onSave(editValue.trim());
+    }
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setEditValue(value);
+    setIsEditing(false);
+  };
+
+  if (!isEditing) {
+    return (
+      <TouchableOpacity
+        onPress={() => editable && setIsEditing(true)}
+        disabled={!editable}
+        activeOpacity={editable ? 0.7 : 1}
+      >
+        <Text style={[styles.label, { color: colors.textSecondary }]}>
+          {label}
+          {required && <Text style={{ color: colors.error }}> *</Text>}
+        </Text>
+        <View style={styles.valueRow}>
+          <Text style={[
+            styles.value,
+            { color: value ? colors.text : colors.inputPlaceholder },
+            !value && styles.valuePlaceholder,
+            styles.valueFlex,
+          ]}>
+            {value || placeholder || 'Tap to edit'}
+          </Text>
+          {editable && (
+            <Text style={[styles.editHint, { color: colors.primary }]}>Tap to edit</Text>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <View>
+      <Text style={[styles.label, { color: colors.textSecondary }]}>
+        {label}
+        {required && <Text style={{ color: colors.error }}> *</Text>}
+      </Text>
+      <TextInput
+        style={[
+          styles.input,
+          {
+            color: colors.text,
+            borderColor: colors.inputBorder,
+            backgroundColor: colors.inputBackground,
+          },
+        ]}
+        value={editValue}
+        onChangeText={setEditValue}
+        placeholder={placeholder}
+        placeholderTextColor={colors.inputPlaceholder}
+        autoFocus
+        autoCapitalize="words"
+      />
+      <View style={styles.editActions}>
+        <PRGButton
+          title="Cancel"
+          onPress={handleCancel}
+          variant="ghost"
+          style={styles.actionButton}
+        />
+        <PRGButton
+          title="Save"
+          onPress={handleSave}
+          variant="primary"
+          style={styles.actionButton}
+          disabled={!editValue.trim()}
+        />
+      </View>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  label: {
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.medium,
+    marginBottom: spacing.xs,
+  },
+  valueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  value: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium,
+    fontFamily: typography.fontFamily.medium,
+  },
+  valueFlex: {
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  valuePlaceholder: {
+    fontStyle: 'italic',
+  },
+  editHint: {
+    fontSize: typography.fontSize.xs,
+    fontFamily: typography.fontFamily.regular,
+    fontStyle: 'italic',
+  },
+  input: {
+    fontSize: typography.fontSize.base,
+    fontFamily: typography.fontFamily.regular,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  editActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  actionButton: {
+    minWidth: 80,
+  },
+});
+
