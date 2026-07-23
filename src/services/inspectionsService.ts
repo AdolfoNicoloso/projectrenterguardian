@@ -168,6 +168,19 @@ class InspectionsService {
       return false;
     }
   }
+
+  /**
+   * Delete an in-progress or completed inspection and its steps.
+   */
+  async deleteInspection(inspectionId: string): Promise<void> {
+    await backendClient.call<{ ok: boolean; message: string }>(
+      'deleteInspection',
+      {
+        method: 'DELETE',
+        body: JSON.stringify({ id: inspectionId }),
+      }
+    );
+  }
 }
 
 export const inspectionsService = new InspectionsService();

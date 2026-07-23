@@ -1,30 +1,24 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { PRGCard, PRGEditableTextRow, PRGHeader, PRGPhotoGrid, PRGButton, PRGInput, useToast } from '../../../../../src/components';
+import { PRGCard, PRGEditableTextRow, PRGHeader, PRGPhotoGrid, PRGButton, PRGInput, NotesListEditor, useToast } from '../../../../../src/components';
 import { spacesService } from '../../../../../src/services/spacesService';
-import { propertiesService } from '../../../../../src/services/propertiesService';
 import { photosService } from '../../../../../src/services/photosService';
+import { useAuthStore } from '../../../../../src/state/authStore';
+import { usePropertiesStore } from '../../../../../src/state/propertiesStore';
+import { SPACE_TYPES, getSpaceTypeLabel } from '../../../../../src/constants/spaceTypes';
 import { spacing, typography } from '../../../../../src/theme';
 import { useTheme } from '../../../../../src/theme/useTheme';
-import type { Space } from '../../../../../src/types';
-
-const SPACE_TYPES: Array<{ value: Space['space_type']; label: string }> = [
-  { value: 'bedroom', label: 'Bedroom' },
-  { value: 'bathroom', label: 'Bathroom' },
-  { value: 'kitchen', label: 'Kitchen' },
-  { value: 'living_room', label: 'Living Room' },
-  { value: 'dining_room', label: 'Dining Room' },
-  { value: 'hallway', label: 'Hallway' },
-  { value: 'garage', label: 'Garage' },
-  { value: 'custom_space_type', label: 'Custom' },
-];
+import type { NoteEntry, Space } from '../../../../../src/types';
+import { coerceNotesEntries } from '../../../../../src/utils/notes';
+import { canEditProperty } from '../../../../../src/utils/propertyAccess';
 
 export default function SpaceDetailScreen() {
   const params = useLocalSearchParams<{ id: string | string[]; spaceId: string | string[] }>();
   const router = useRouter();
   const { showToast } = useToast();
   const { colors } = useTheme();
+  const authUser = useAuthStore((s) => s.user);
   const [space, setSpace] = useState<Space | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,97 +27,91 @@ export default function SpaceDetailScreen() {
   const [isEditingSpaceType, setIsEditingSpaceType] = useState(false);
   const [selectedSpaceType, setSelectedSpaceType] = useState<Space['space_type'] | null>(null);
   const [otherTypeValue, setOtherTypeValue] = useState('');
+  const [notesEntries, setNotesEntries] = useState<NoteEntry[]>([]);
+
+  const currentUserName =
+    authUser?.displayName?.trim() ||
+    authUser?.email?.trim() ||
+    authUser?.phoneNumber?.trim() ||
+    'You';
 
   // Handle array params (Expo Router sometimes returns arrays)
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const spaceId = Array.isArray(params.spaceId) ? params.spaceId[0] : params.spaceId;
 
-  const loadSpace = useCallback(async () => {
+  const loadSpace = useCallback(async (opts?: { soft?: boolean }) => {
     if (!spaceId || !id) {
       setError('Missing property ID or space ID');
       setLoading(false);
       return;
     }
+    const soft = opts?.soft ?? false;
     try {
-      setLoading(true);
+      if (!soft) {
+        setLoading(true);
+      }
       setError(null);
-      console.log('[SpaceDetailScreen] Loading space:', { spaceId, propertyId: id });
       const spaces = await spacesService.getSpaces(id);
-      console.log('[SpaceDetailScreen] Loaded spaces:', spaces.length, 'spaces');
-      console.log('[SpaceDetailScreen] Looking for space ID:', spaceId, '(type:', typeof spaceId, ')');
-      console.log('[SpaceDetailScreen] Available space IDs:', spaces.map(s => ({ id: s.id, type: typeof s.id, display_name: s.display_name })));
-      
-      // Normalize both IDs to strings for comparison (Directus may return numeric IDs)
       const normalizedSpaceId = String(spaceId);
-      const foundSpace = spaces.find(s => String(s.id) === normalizedSpaceId);
-      
+      const foundSpace = spaces.find((s) => String(s.id) === normalizedSpaceId);
+
       if (foundSpace) {
-        console.log('[SpaceDetailScreen] Found space:', foundSpace.display_name);
         setSpace(foundSpace);
         setSelectedSpaceType(foundSpace.space_type);
-        // If space_type is "custom", load the custom_type_name
-        setOtherTypeValue(foundSpace.space_type === 'custom_space_type' ? (foundSpace.custom_space_type || '') : '');
+        setNotesEntries(
+          coerceNotesEntries(foundSpace.notes_entries, foundSpace.notes)
+        );
+        setOtherTypeValue(
+          foundSpace.space_type === 'custom_space_type'
+            ? foundSpace.custom_space_type || ''
+            : ''
+        );
       } else {
-        console.warn('[SpaceDetailScreen] Space not found. Looking for:', normalizedSpaceId);
-        console.warn('[SpaceDetailScreen] Available IDs:', spaces.map(s => String(s.id)));
         setError(`Space not found. Available spaces: ${spaces.length}`);
         setSpace(null);
       }
-    } catch (error) {
-      console.error('[SpaceDetailScreen] Error loading space:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load space');
+    } catch (err) {
+      console.error('[SpaceDetailScreen] Error loading space:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load space');
       setSpace(null);
     } finally {
       setLoading(false);
     }
   }, [id, spaceId]);
 
-  useEffect(() => {
-    if (id && spaceId) {
-      loadSpace();
-    }
-  }, [id, spaceId, loadSpace]);
-
   const loadProperty = useCallback(async () => {
-      if (!id) return;
-      try {
-        const prop = await propertiesService.getProperty(id);
-        setProperty(prop);
-      } catch {
-        setProperty(null);
-      }
+    if (!id) return;
+    const cached = usePropertiesStore.getState().byId[id];
+    if (cached) {
+      setProperty(cached);
+      return;
+    }
+    try {
+      const prop = await usePropertiesStore.getState().fetchOne(id);
+      setProperty(prop);
+    } catch {
+      setProperty(null);
+    }
   }, [id]);
 
   const loadPhotos = useCallback(async () => {
     if (!id || !spaceId) return;
-      try {
-      // Load photos filtered by space directly from the backend
+    try {
       const spacePhotos = await photosService.getPhotos(id, { spaceId });
-      console.log('[SpaceDetailScreen] Loaded photos:', {
-        forSpace: spacePhotos.length,
-        spaceId,
-        photos: spacePhotos.map(p => ({ id: p.id, file: p.file, space: p.space }))
-      });
       setPhotos(spacePhotos);
     } catch (error) {
       console.error('[SpaceDetailScreen] Error loading photos:', error);
-        setPhotos([]);
-      }
+      setPhotos([]);
+    }
   }, [id, spaceId]);
 
-  useEffect(() => {
-    if (id) {
-      loadProperty();
-    }
-  }, [id, loadProperty]);
-
-  // Reload photos when screen comes into focus (e.g., after uploading photos)
   useFocusEffect(
     useCallback(() => {
-      if (id && spaceId) {
-      loadPhotos();
-    }
-    }, [id, spaceId, loadPhotos])
+      if (!id || !spaceId) return;
+      void loadSpace({ soft: true });
+      void loadProperty();
+      void loadPhotos();
+    }, [id, spaceId, loadSpace, loadProperty, loadPhotos])
   );
 
   const handleUpdateDisplayName = async (newName: string) => {
@@ -135,6 +123,24 @@ export default function SpaceDetailScreen() {
     } catch (error) {
       console.error('Error updating space:', error);
       showToast('Failed to update space name', 'error');
+    }
+  };
+
+  const handlePersistNotes = async (entries: NoteEntry[]) => {
+    if (!spaceId) return;
+    try {
+      const updated = await spacesService.updateSpace(spaceId, {
+        notes_entries: entries,
+      });
+      setSpace(updated);
+      setNotesEntries(
+        coerceNotesEntries(updated.notes_entries, updated.notes)
+      );
+      showToast('Notes saved', 'success');
+    } catch (error) {
+      console.error('Error saving space notes:', error);
+      showToast('Failed to save notes', 'error');
+      throw error;
     }
   };
 
@@ -189,82 +195,47 @@ export default function SpaceDetailScreen() {
   };
 
   const handleDelete = async () => {
-    console.log('[SpaceDetailScreen] handleDelete called, spaceId:', spaceId, 'space:', space);
     if (!spaceId || !space) {
-      console.warn('[SpaceDetailScreen] No spaceId or space available for deletion');
       return;
     }
 
-    // First, ask if user wants to delete photos
-    const shouldDeletePhotos = await new Promise<boolean>((resolve) => {
-      if (photos.length === 0) {
-        // No photos to delete, skip the prompt
-        resolve(false);
+    const photoCount = photos.length;
+    const title = 'Delete this space?';
+    const message =
+      photoCount > 0
+        ? `“${space.display_name}” will be removed. ${photoCount} photo${photoCount === 1 ? '' : 's'} will move to Unassigned — they will not be deleted.`
+        : `“${space.display_name}” will be removed. This cannot be undone.`;
+
+    const confirmed = await new Promise<boolean>((resolve) => {
+      if (Platform.OS === 'web') {
+        resolve(window.confirm(`${title}\n\n${message}`));
         return;
       }
-
-      if (Platform.OS === 'web') {
-        const confirmed = (window as any).confirm(
-          `Would you like to delete all ${photos.length} photo${photos.length > 1 ? 's' : ''} assigned to this space?`
-        );
-        resolve(confirmed);
-      } else {
-        Alert.alert(
-          'Delete Photos?',
-          `Would you like to delete all ${photos.length} photo${photos.length > 1 ? 's' : ''} assigned to this space?`,
-          [
-            {
-              text: 'No',
-              style: 'cancel',
-              onPress: () => resolve(false),
-            },
-            {
-              text: 'Yes',
-              onPress: () => resolve(true),
-            },
-          ],
-          { cancelable: true, onDismiss: () => resolve(false) }
-        );
-      }
+      Alert.alert(title, message, [
+        { text: 'Keep space', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Delete space', style: 'destructive', onPress: () => resolve(true) },
+      ], { cancelable: true, onDismiss: () => resolve(false) });
     });
 
-    // Delete photos if user confirmed
-    if (shouldDeletePhotos && photos.length > 0) {
-      try {
-        console.log('[SpaceDetailScreen] Deleting', photos.length, 'photos');
-        // Delete all photos in parallel
-        await Promise.all(photos.map(photo => photosService.deletePhoto(photo.id)));
-        console.log('[SpaceDetailScreen] All photos deleted successfully');
-      } catch (error) {
-        console.error('[SpaceDetailScreen] Error deleting photos:', error);
-        showToast('Failed to delete some photos', 'error');
-        // Continue with space deletion even if photo deletion fails
-      }
-    }
+    if (!confirmed) return;
 
-    // Delete the space
     try {
-      console.log('[SpaceDetailScreen] Calling deleteSpace with spaceId:', spaceId);
       await spacesService.deleteSpace(spaceId);
-      console.log('[SpaceDetailScreen] Space deleted successfully');
-      showToast('Space deleted successfully', 'success');
+      showToast(
+        photoCount > 0
+          ? `Space deleted. ${photoCount} photo${photoCount === 1 ? '' : 's'} moved to Unassigned.`
+          : 'Space deleted',
+        'success'
+      );
       if (id) {
         router.replace(`/(tabs)/properties/${id}`);
       } else {
-      router.back();
+        router.back();
       }
     } catch (error) {
       console.error('[SpaceDetailScreen] Error deleting space:', error);
       showToast('Failed to delete space', 'error');
     }
-  };
-
-  const getSpaceTypeLabel = (type: Space['space_type'], customTypeName?: string) => {
-    if (type === 'custom_space_type' && customTypeName) {
-      return customTypeName; // Show the custom type name as the label
-    }
-    const spaceType = SPACE_TYPES.find(st => st.value === type);
-    return spaceType ? spaceType.label : type.replace('_', ' ');
   };
 
   const handleBack = () => {
@@ -281,7 +252,7 @@ export default function SpaceDetailScreen() {
     }
   };
 
-  if (loading) {
+  if (loading && !space) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <PRGHeader title="Space" showBack onBack={handleBack} />
@@ -310,6 +281,8 @@ export default function SpaceDetailScreen() {
     );
   }
 
+  const canEdit = canEditProperty(property);
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <PRGHeader
@@ -323,7 +296,7 @@ export default function SpaceDetailScreen() {
           <PRGEditableTextRow
             label="Space Name"
             value={space.display_name}
-            onSave={handleUpdateDisplayName}
+            onSave={canEdit ? handleUpdateDisplayName : undefined}
             placeholder="e.g., Master Bedroom"
             required
           />
@@ -334,23 +307,30 @@ export default function SpaceDetailScreen() {
           <Text style={[styles.label, { color: colors.textSecondary }]}>Space Type</Text>
             {!isEditingSpaceType ? (
                 <TouchableOpacity
-                onPress={() => {
-                  setIsEditingSpaceType(true);
-                  setSelectedSpaceType(space.space_type);
-                  // If space_type is "custom_space_type", pre-fill the custom input with custom_space_type
-                  if (space.space_type === 'custom_space_type') {
-                    setOtherTypeValue(space.custom_space_type || '');
-                  } else {
-                    setOtherTypeValue('');
-                  }
-                }}
+                onPress={
+                  canEdit
+                    ? () => {
+                        setIsEditingSpaceType(true);
+                        setSelectedSpaceType(space.space_type);
+                        // If space_type is "custom_space_type", pre-fill the custom input with custom_space_type
+                        if (space.space_type === 'custom_space_type') {
+                          setOtherTypeValue(space.custom_space_type || '');
+                        } else {
+                          setOtherTypeValue('');
+                        }
+                      }
+                    : undefined
+                }
+                disabled={!canEdit}
                 style={styles.editableValue}
               >
                 <View style={styles.valueRow}>
                   <Text style={[styles.value, styles.valueFlex, { color: colors.text }]}>
-                    {getSpaceTypeLabel(space.space_type, space.custom_type_name)}
+                    {getSpaceTypeLabel(space.space_type, space.custom_space_type)}
                   </Text>
-                  <Text style={[styles.editHint, { color: colors.primary }]}>Tap to edit</Text>
+                  {canEdit ? (
+                    <Text style={[styles.editHint, { color: colors.primary }]}>Tap to edit</Text>
+                  ) : null}
                 </View>
               </TouchableOpacity>
             ) : (
@@ -403,14 +383,27 @@ export default function SpaceDetailScreen() {
           </View>
         </PRGCard>
 
+        <PRGCard>
+          <NotesListEditor
+            entries={notesEntries}
+            onChange={setNotesEntries}
+            onPersist={canEdit ? handlePersistNotes : undefined}
+            editable={canEdit}
+            currentUserName={currentUserName}
+            placeholder="e.g., scuffed wall, missing cover plate…"
+          />
+        </PRGCard>
+
         <View style={styles.photosSection}>
           <View style={styles.photosHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Photos</Text>
-        <PRGButton
-              title="Add Photos"
-              onPress={() => router.push(`/(tabs)/properties/${id}/spaces/${spaceId}/add-photos`)}
-              variant="secondary"
-            />
+            {canEdit ? (
+              <PRGButton
+                title="Add Photos"
+                onPress={() => router.push(`/(tabs)/properties/${id}/spaces/${spaceId}/add-photos`)}
+                variant="secondary"
+              />
+            ) : null}
           </View>
           {photos.length === 0 ? (
             <View style={styles.emptyPhotos}>
@@ -427,6 +420,7 @@ export default function SpaceDetailScreen() {
           )}
         </View>
 
+        {canEdit ? (
         <View style={styles.deleteContainer}>
           <PRGButton
             title="Delete Space"
@@ -476,6 +470,7 @@ export default function SpaceDetailScreen() {
             style={styles.deleteButton}
           />
         </View>
+        ) : null}
       </ScrollView>
     </View>
   );

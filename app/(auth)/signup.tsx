@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, KeyboardAvoidingView, Platform } from 'react-na
 import { useRouter } from 'expo-router';
 import { PRGButton, PRGInput, ScrollableScreenContainer } from '../../src/components';
 import { useAuthStore } from '../../src/state/authStore';
+import { getAuthErrorMessage } from '../../src/utils/authErrors';
 import { spacing, typography } from '../../src/theme';
 import { useTheme } from '../../src/theme/useTheme';
 import { isRequired, isValidPassword } from '../../src/utils/validation';
@@ -42,8 +43,8 @@ export default function SignUpScreen() {
       // Use routing resolver instead of direct navigation
       const { resolvePostAuthRoute } = await import('../../src/utils/routingResolver');
       await resolvePostAuthRoute();
-    } catch (err: any) {
-      setError(err.message || 'Registration failed');
+    } catch (err: unknown) {
+      setError(getAuthErrorMessage(err, 'Registration failed. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -60,11 +61,11 @@ export default function SignUpScreen() {
       await resolvePostAuthRoute();
     } catch (err: any) {
       // If redirecting, don't show error (user will be redirected)
-      if (err.message === 'Redirecting to Google sign-in...') {
+      if (err?.message === 'Redirecting to Google sign-in...') {
         // Keep loading state - user will be redirected
         return;
       }
-      setError(err.message || 'Google sign-in failed');
+      setError(getAuthErrorMessage(err, 'Google sign-in failed. Please try again.'));
       setGoogleLoading(false);
     }
   };

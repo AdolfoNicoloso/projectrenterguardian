@@ -1,21 +1,5 @@
+import { getFunctionsBaseUrl } from '../config/cloudFunctions';
 import { auth } from './firebase';
-
-/**
- * Get the base URL for Firebase Functions.
- * Supports local emulator and production environments.
- */
-function getFunctionsBaseUrl(): string {
-  // Check if we're using emulator (local development)
-  if (process.env.EXPO_PUBLIC_USE_FIREBASE_EMULATOR === 'true') {
-    const emulatorHost = process.env.EXPO_PUBLIC_FIREBASE_EMULATOR_HOST || 'localhost';
-    const emulatorPort = process.env.EXPO_PUBLIC_FIREBASE_EMULATOR_PORT || '5001';
-    return `http://${emulatorHost}:${emulatorPort}/${process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID}/us-central1`;
-  }
-
-  // Production URL
-  const projectId = process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || 'project-renter-guardian';
-  return `https://us-central1-${projectId}.cloudfunctions.net`;
-}
 
 /**
  * Get the current user's Firebase ID token.
@@ -121,7 +105,7 @@ async function request<T>(
 /**
  * Canonical backend API client for all Firebase Functions calls.
  * All requests are authenticated with Firebase ID tokens.
- * Never exposes Directus credentials or makes direct Directus calls.
+ * CMS (Firestore + Storage) is reached only through Cloud Functions, not from the app directly.
  */
 class BackendClient {
   /**

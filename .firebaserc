@@ -1,5 +1,7 @@
 {
   "projects": {
     "default": "project-renter-guardian"
-  }
+  },
+  "targets": {},
+  "etags": {}
 }

@@ -3,8 +3,7 @@ import type { Space } from '../types';
 
 /**
  * Domain service for space operations.
- * All space operations go through Firebase Functions backend.
- * Never calls Directus directly.
+ * Calls Firebase Cloud Functions only (Firestore on the server).
  */
 class SpacesService {
   /**

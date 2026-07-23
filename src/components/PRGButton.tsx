@@ -6,11 +6,13 @@ import { useTheme } from '../theme/useTheme';
 interface PRGButtonProps {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   disabled?: boolean;
   loading?: boolean;
   style?: StyleProp<ViewStyle>;
   textColor?: string;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
 }
 
 export const PRGButton: React.FC<PRGButtonProps> = ({
@@ -21,6 +23,8 @@ export const PRGButton: React.FC<PRGButtonProps> = ({
   loading = false,
   style,
   textColor,
+  accessibilityLabel,
+  accessibilityHint,
 }) => {
   const { colors } = useTheme();
   
@@ -41,6 +45,9 @@ export const PRGButton: React.FC<PRGButtonProps> = ({
   } else if (variant === 'ghost') {
     buttonStyle.push({ backgroundColor: 'transparent' });
     textStyle.push({ color: colors.primary });
+  } else if (variant === 'danger') {
+    buttonStyle.push({ backgroundColor: colors.error });
+    textStyle.push({ color: colors.textInverse });
   }
 
   if (disabled || loading) {
@@ -51,7 +58,8 @@ export const PRGButton: React.FC<PRGButtonProps> = ({
     textStyle.push({ color: textColor });
   }
 
-  const indicatorColor = variant === 'primary' ? colors.textInverse : colors.primary;
+  const indicatorColor =
+    variant === 'primary' || variant === 'danger' ? colors.textInverse : colors.primary;
 
   return (
     <TouchableOpacity
@@ -59,6 +67,10 @@ export const PRGButton: React.FC<PRGButtonProps> = ({
       onPress={onPress}
       disabled={disabled || loading}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel || title}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
     >
       {loading ? (
         <ActivityIndicator color={indicatorColor} />

@@ -3,7 +3,7 @@ import { View, Image, TouchableOpacity, StyleSheet, Text, Modal, Dimensions, Ani
 import { spacing, typography } from '../theme';
 import { useTheme } from '../theme/useTheme';
 import type { Photo } from '../types';
-import { getDirectusFileUrlWithAuth } from '../utils/fileUrl';
+import { getAuthenticatedCmsFileUrl } from '../utils/fileUrl';
 
 interface PRGPhotoGridProps {
   photos: Photo[];
@@ -34,7 +34,7 @@ const PhotoImage: React.FC<{ photo: Photo; isSelected: boolean; onPress: () => v
 
     const loadImage = async () => {
       try {
-        const url = await getDirectusFileUrlWithAuth(photo.file);
+        const url = await getAuthenticatedCmsFileUrl(photo.file);
         if (!cancelled) {
           console.log('[PhotoImage] Setting image URI for photo:', photo.id);
           setImageUri(url);
@@ -142,7 +142,7 @@ const PhotoImage: React.FC<{ photo: Photo; isSelected: boolean; onPress: () => v
             if (errorMessage.includes('Failed to load resource') || errorMessage.includes('Network')) {
               console.warn(`[PhotoImage] Network error for photo ${photo.id}, attempting reload...`);
               if (imageUri && imageUri.includes('getFile')) {
-                getDirectusFileUrlWithAuth(photo.file)
+                getAuthenticatedCmsFileUrl(photo.file)
                   .then((newUrl) => {
                     if (newUrl !== imageUri) {
                       setImageUri(newUrl);
@@ -189,7 +189,7 @@ export const PRGPhotoGrid: React.FC<PRGPhotoGridProps> = ({
 
   useEffect(() => {
     if (previewPhoto?.file) {
-      getDirectusFileUrlWithAuth(previewPhoto.file)
+      getAuthenticatedCmsFileUrl(previewPhoto.file)
         .then(setPreviewImageUri)
         .catch((error) => {
           console.error('Error loading preview image:', error);

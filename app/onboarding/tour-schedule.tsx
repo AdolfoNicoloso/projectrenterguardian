@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { PRGButton, ScrollableScreenContainer, DateField, NumberPicker } from '../../src/components';
+import {
+  PRGButton,
+  ScrollableScreenContainer,
+  DateField,
+} from '../../src/components';
 import { spacing, typography } from '../../src/theme';
 import { useTheme } from '../../src/theme/useTheme';
-import { isRequired } from '../../src/utils/validation';
 
-export default function OnboardingLeaseInfoScreen() {
+/**
+ * Onboarding touring step: personal tour date/time before nickname.
+ */
+export default function OnboardingTourScheduleScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     street?: string;
@@ -14,26 +20,19 @@ export default function OnboardingLeaseInfoScreen() {
     city?: string;
     state?: string;
     zip?: string;
+    listing_url?: string;
+    status?: string;
   }>();
   const { colors } = useTheme();
-  const [leaseStartISO, setLeaseStartISO] = useState<string | null>(null);
-  const [leaseTerm, setLeaseTerm] = useState<number | null>(null);
+  const [tourScheduledAt, setTourScheduledAt] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  const handleContinue = () => {
-    if (!isRequired(leaseStartISO)) {
-      setError('Lease start date is required');
-      return;
-    }
-
+  const goToNickname = (scheduledAt: string | null) => {
     if (!params.street || !params.city || !params.state || !params.zip) {
       setError('Missing property information');
       return;
     }
-
     setError('');
-
-    // Navigate to nickname screen with all property info as params
     router.push({
       pathname: '/onboarding/nickname',
       params: {
@@ -42,8 +41,9 @@ export default function OnboardingLeaseInfoScreen() {
         city: params.city,
         state: params.state,
         zip: params.zip,
-        leaseStartISO: leaseStartISO,
-        leaseTerm: leaseTerm ? leaseTerm.toString() : '',
+        listing_url: params.listing_url || '',
+        status: 'touring',
+        tour_scheduled_at: scheduledAt || '',
       },
     });
   };
@@ -54,7 +54,7 @@ export default function OnboardingLeaseInfoScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollableScreenContainer
-        includeBottomSafeArea={true}
+        includeBottomSafeArea
         horizontalPadding={spacing.lg}
         topPadding={spacing.xl}
         bottomPadding={spacing.xl}
@@ -63,37 +63,38 @@ export default function OnboardingLeaseInfoScreen() {
       >
         <View style={styles.content}>
           <Text style={[styles.prompt, { color: colors.text }]}>
-            Lease Information
+            When is your tour?
+          </Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            This is your personal tracker and reminder only — it does not schedule
+            anything with the landlord or management agency. You can add or edit
+            the tour date and time on the property anytime.
           </Text>
 
-          {error ? <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text> : null}
+          {error ? (
+            <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
+          ) : null}
 
-          <View style={styles.input}>
-            <DateField
-              label="Lease Start Date *"
-              valueISO={leaseStartISO}
-              onChangeISO={setLeaseStartISO}
-              dateOnly={true}
-              placeholder="Select lease start date"
-            />
-          </View>
-
-          <View style={styles.input}>
-            <NumberPicker
-              label="Lease Term (months)"
-              value={leaseTerm}
-              onChange={setLeaseTerm}
-              min={1}
-              max={36}
-              placeholder="Select number of months"
-            />
-          </View>
+          <DateField
+            label="Tour date & time"
+            valueISO={tourScheduledAt}
+            onChangeISO={setTourScheduledAt}
+            dateOnly={false}
+            placeholder="Select date and time"
+          />
 
           <PRGButton
             title="Continue"
-            onPress={handleContinue}
-            disabled={!leaseStartISO}
+            onPress={() => goToNickname(tourScheduledAt)}
+            disabled={!tourScheduledAt}
             style={styles.button}
+          />
+          <PRGButton
+            title="I don't have a tour yet."
+            onPress={() => goToNickname(null)}
+            variant="ghost"
+            style={styles.skipButton}
+            accessibilityLabel="Skip tour scheduling"
           />
         </View>
       </ScrollableScreenContainer>
@@ -102,13 +103,8 @@ export default function OnboardingLeaseInfoScreen() {
 }
 
 const styles = StyleSheet.create({
-  keyboardAvoidingView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-  },
+  keyboardAvoidingView: { flex: 1 },
+  scrollContent: { flexGrow: 1, justifyContent: 'center' },
   content: {
     maxWidth: 400,
     width: '100%',
@@ -119,14 +115,17 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.bold,
     fontFamily: typography.fontFamily.bold,
     textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  subtitle: {
+    fontSize: typography.fontSize.base,
+    fontFamily: typography.fontFamily.regular,
+    textAlign: 'center',
+    lineHeight: 22,
     marginBottom: spacing.xl,
   },
-  input: {
-    marginBottom: 2,
-  },
-  button: {
-    marginTop: spacing.md,
-  },
+  button: { marginTop: spacing.md },
+  skipButton: { marginTop: spacing.sm },
   errorText: {
     fontSize: typography.fontSize.sm,
     fontFamily: typography.fontFamily.regular,

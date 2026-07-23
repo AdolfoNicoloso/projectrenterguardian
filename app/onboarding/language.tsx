@@ -23,7 +23,7 @@ export default function OnboardingLanguageScreen() {
 
     try {
       await userPreferencesService.updateUserPreferences({ preferred_language: selectedLanguage });
-      router.push('/onboarding/property-info');
+      router.push('/onboarding/intent');
     } catch (err: any) {
       showToast(err.message || 'Failed to save language preference', 'error');
     } finally {

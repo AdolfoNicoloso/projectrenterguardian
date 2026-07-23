@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
 import { spacing, typography } from '../theme';
 import { useTheme } from '../theme/useTheme';
@@ -11,6 +11,10 @@ interface PRGEditableTextRowProps {
   placeholder?: string;
   editable?: boolean;
   required?: boolean;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  maxLength?: number;
+  /** When true, empty values may be saved (cleared). */
+  allowEmpty?: boolean;
 }
 
 export const PRGEditableTextRow: React.FC<PRGEditableTextRowProps> = ({
@@ -20,15 +24,30 @@ export const PRGEditableTextRow: React.FC<PRGEditableTextRowProps> = ({
   placeholder,
   editable = true,
   required = false,
+  autoCapitalize = 'words',
+  maxLength,
+  allowEmpty = false,
 }) => {
   const { colors } = useTheme();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
 
-  const handleSave = () => {
-    if (onSave && editValue.trim()) {
-      onSave(editValue.trim());
+  useEffect(() => {
+    if (!isEditing) {
+      setEditValue(value);
     }
+  }, [value, isEditing]);
+
+  const handleSave = () => {
+    if (!onSave) {
+      setIsEditing(false);
+      return;
+    }
+    const next = editValue.trim();
+    if (!next && !allowEmpty) {
+      return;
+    }
+    onSave(next);
     setIsEditing(false);
   };
 
@@ -40,25 +59,38 @@ export const PRGEditableTextRow: React.FC<PRGEditableTextRowProps> = ({
   if (!isEditing) {
     return (
       <TouchableOpacity
-        onPress={() => editable && setIsEditing(true)}
+        onPress={() => {
+          if (editable) {
+            setEditValue(value);
+            setIsEditing(true);
+          }
+        }}
         disabled={!editable}
         activeOpacity={editable ? 0.7 : 1}
+        accessibilityRole="button"
+        accessibilityLabel={`Edit ${label}`}
       >
         <Text style={[styles.label, { color: colors.textSecondary }]}>
           {label}
           {required && <Text style={{ color: colors.error }}> *</Text>}
         </Text>
         <View style={styles.valueRow}>
-          <Text style={[
-            styles.value,
-            { color: value ? colors.text : colors.inputPlaceholder },
-            !value && styles.valuePlaceholder,
-            styles.valueFlex,
-          ]}>
+          <Text
+            style={[
+              styles.value,
+              { color: value ? colors.text : colors.inputPlaceholder },
+              !value && styles.valuePlaceholder,
+              styles.valueFlex,
+            ]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {value || placeholder || 'Tap to edit'}
           </Text>
           {editable && (
-            <Text style={[styles.editHint, { color: colors.primary }]}>Tap to edit</Text>
+            <Text style={[styles.editHint, { color: colors.primary }]} numberOfLines={1}>
+              Tap to edit
+            </Text>
           )}
         </View>
       </TouchableOpacity>
@@ -85,7 +117,8 @@ export const PRGEditableTextRow: React.FC<PRGEditableTextRowProps> = ({
         placeholder={placeholder}
         placeholderTextColor={colors.inputPlaceholder}
         autoFocus
-        autoCapitalize="words"
+        autoCapitalize={autoCapitalize}
+        maxLength={maxLength}
       />
       <View style={styles.editActions}>
         <PRGButton
@@ -99,7 +132,7 @@ export const PRGEditableTextRow: React.FC<PRGEditableTextRowProps> = ({
           onPress={handleSave}
           variant="primary"
           style={styles.actionButton}
-          disabled={!editValue.trim()}
+          disabled={!allowEmpty && !editValue.trim()}
         />
       </View>
     </View>
@@ -124,12 +157,15 @@ const styles = StyleSheet.create({
   },
   valueFlex: {
     flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
     marginRight: spacing.sm,
   },
   valuePlaceholder: {
     fontStyle: 'italic',
   },
   editHint: {
+    flexShrink: 0,
     fontSize: typography.fontSize.xs,
     fontFamily: typography.fontFamily.regular,
     fontStyle: 'italic',

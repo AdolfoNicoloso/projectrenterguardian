@@ -1,0 +1,9 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      // Client access denied; Cloud Functions Admin SDK only.
+      allow read, write: if false;
+    }
+  }
+}

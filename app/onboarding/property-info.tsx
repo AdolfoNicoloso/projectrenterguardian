@@ -1,21 +1,30 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { PRGButton, PRGInput, ScrollableScreenContainer, useToast } from '../../src/components';
+import { appProfileService } from '../../src/services/appProfileService';
 import { spacing, typography } from '../../src/theme';
 import { useTheme } from '../../src/theme/useTheme';
 import { isRequired } from '../../src/utils/validation';
 
+/**
+ * Address step for onboarding create. Expects intent from intent screen.
+ * Continues to property link (then tour-schedule for touring, or nickname).
+ */
 export default function OnboardingPropertyInfoScreen() {
   const router = useRouter();
-  const { showToast } = useToast();
+  const { intent } = useLocalSearchParams<{ intent?: string }>();
+  const isTouring = intent === 'touring';
+  const status = isTouring ? 'touring' : 'active';
   const { colors } = useTheme();
+  const { showToast } = useToast();
   const [street, setStreet] = useState('');
   const [unit, setUnit] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [zip, setZip] = useState('');
   const [error, setError] = useState('');
+  const [skipping, setSkipping] = useState(false);
 
   const handleContinue = () => {
     if (!isRequired(street) || !isRequired(city) || !isRequired(state) || !isRequired(zip)) {
@@ -23,7 +32,6 @@ export default function OnboardingPropertyInfoScreen() {
       return;
     }
 
-    // Validate ZIP is numeric
     if (isNaN(Number(zip)) || zip.length !== 5) {
       setError('ZIP must be a 5-digit number');
       return;
@@ -31,17 +39,28 @@ export default function OnboardingPropertyInfoScreen() {
 
     setError('');
 
-    // Navigate to lease-info screen with property info as params
     router.push({
-      pathname: '/onboarding/lease-info',
+      pathname: '/onboarding/property-link',
       params: {
         street,
         unit: unit || '',
         city,
         state,
         zip,
+        status,
       },
     });
+  };
+
+  const handleSkip = async () => {
+    setSkipping(true);
+    try {
+      await appProfileService.updateAppProfile({ onboarding_completed: true });
+      router.replace('/(tabs)/properties');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to continue', 'error');
+      setSkipping(false);
+    }
   };
 
   return (
@@ -59,8 +78,18 @@ export default function OnboardingPropertyInfoScreen() {
       >
         <View style={styles.content}>
           <Text style={[styles.prompt, { color: colors.text }]}>
-            Tell us about the rental property
+            {isTouring ? 'Where are you touring?' : 'Tell us about the rental property'}
           </Text>
+          {isTouring ? (
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              Next you can add an optional listing link, then a personal tour time.
+              Lease details come later if you choose this place.
+            </Text>
+          ) : (
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              You can add lease details later on the property overview.
+            </Text>
+          )}
 
           {error ? <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text> : null}
 
@@ -114,8 +143,20 @@ export default function OnboardingPropertyInfoScreen() {
           <PRGButton
             title="Continue"
             onPress={handleContinue}
-            disabled={!street.trim() || !city.trim() || !state.trim() || !zip.trim()}
+            disabled={!street.trim() || !city.trim() || !state.trim() || !zip.trim() || skipping}
             style={styles.button}
+          />
+
+          <PRGButton
+            title="Skip"
+            onPress={handleSkip}
+            variant="ghost"
+            loading={skipping}
+            disabled={skipping}
+            style={styles.button}
+            accessibilityLabel={
+              isTouring ? 'Skip adding a touring property' : 'Skip adding a rental property'
+            }
           />
         </View>
       </ScrollableScreenContainer>
@@ -141,6 +182,13 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.bold,
     fontFamily: typography.fontFamily.bold,
     textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  subtitle: {
+    fontSize: typography.fontSize.base,
+    fontFamily: typography.fontFamily.regular,
+    textAlign: 'center',
+    lineHeight: 22,
     marginBottom: spacing.xl,
   },
   input: {

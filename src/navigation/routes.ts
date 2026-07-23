@@ -6,14 +6,17 @@
 export const Routes = {
   // Auth routes
   AUTH: {
+    WELCOME: '/welcome',
     LOGIN: '/(auth)/login',
     SIGNUP: '/(auth)/signup',
+    FORGOT_PASSWORD: '/(auth)/forgot-password',
   },
   
   // Properties routes
   PROPERTIES: {
     LIST: '/(tabs)/properties',
-    CREATE: '/(tabs)/properties/property-info',
+    CREATE: '/(tabs)/properties/status-intent',
+    TOURS_CALENDAR: '/(tabs)/properties/tours-calendar',
     DETAIL: (id: string) => `/(tabs)/properties/${id}`,
     PHOTOS: {
       UPLOAD: (propertyId: string, spaceId?: string) => 
@@ -47,7 +50,12 @@ export const Routes = {
     DETAIL: (id: string) => `/(tabs)/inspections/${id}`,
   },
   
-  // Insights routes
+  // Insights routes (user-facing name: Reports)
+  REPORTS: {
+    LIST: '/(tabs)/insights',
+    DETAIL: (id: string) => `/(tabs)/insights/${id}`,
+  },
+  /** @deprecated Use Routes.REPORTS */
   INSIGHTS: {
     LIST: '/(tabs)/insights',
     DETAIL: (id: string) => `/(tabs)/insights/${id}`,

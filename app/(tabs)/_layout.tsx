@@ -1,4 +1,4 @@
-import { Tabs, Redirect } from 'expo-router';
+import { Tabs, Redirect, router } from 'expo-router';
 import { useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../src/state/authStore';
@@ -49,7 +49,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="properties"
         options={{
-          title: 'Properties',
+          title: 'Home',
           tabBarIcon: ({ focused }) => {
             const IconComponent = getNavIcon('properties', focused, theme);
             return <SVGIcon source={IconComponent} size={focused ? iconSize + 4 : iconSize} />;
@@ -58,8 +58,15 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="inspections"
+        listeners={{
+          tabPress: () => {
+            // Always land on the Inspections list, not a leftover "new"/wizard screen.
+            router.navigate('/(tabs)/inspections');
+          },
+        }}
         options={{
           title: 'Inspections',
+          href: '/(tabs)/inspections',
           tabBarIcon: ({ focused }) => {
             const IconComponent = getNavIcon('inspections', focused, theme);
             return <SVGIcon source={IconComponent} size={focused ? iconSize + 4 : iconSize} />;
@@ -69,7 +76,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="insights"
         options={{
-          title: 'Insights',
+          title: 'Reports',
+          tabBarAccessibilityLabel: 'Reports',
           tabBarIcon: ({ focused }) => {
             const IconComponent = getNavIcon('insights', focused, theme);
             return <SVGIcon source={IconComponent} size={focused ? iconSize + 4 : iconSize} />;
@@ -89,4 +97,3 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
-

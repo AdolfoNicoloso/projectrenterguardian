@@ -3,8 +3,7 @@ import type { Photo } from '../types';
 
 /**
  * Domain service for photo operations.
- * All photo operations go through Firebase Functions backend.
- * Never calls Directus directly.
+ * Calls Firebase Cloud Functions only (Firestore/Storage on the server).
  */
 class PhotosService {
   /**
@@ -81,18 +80,20 @@ class PhotosService {
   }
 
   /**
-   * Upload a file to Directus and return the file ID.
-   * File is sent as base64 to Firebase Function which handles Directus upload.
+   * Upload a file via Cloud Function; returns a Storage media id.
+   * When propertyId is set, the server requires edit access on that property.
    * @param {object} file File data.
    * @param {string} file.base64 Base64 encoded file (data URI format).
    * @param {string} file.type MIME type.
    * @param {string} file.name File name.
-   * @return {Promise<string>} The Directus file ID.
+   * @param {string} [file.propertyId] Property id for edit-gated uploads.
+   * @return {Promise<string>} The media file id.
    */
   async uploadFile(file: {
     base64: string;
     type: string;
     name: string;
+    propertyId?: string;
   }): Promise<string> {
     const response = await backendClient.call<{ data: { id: string } }>(
       'uploadFile',
@@ -102,6 +103,42 @@ class PhotosService {
       }
     );
     return response.data.id;
+  }
+
+  /**
+   * Best-effort delete of an orphaned upload (media_files + Storage).
+   * Only succeeds for files the caller uploaded.
+   * @param {string} fileId Media file id from uploadFile.
+   */
+  async deleteUploadedFile(fileId: string): Promise<void> {
+    await backendClient.call<{ ok: boolean }>('deleteUploadedFile', {
+      method: 'POST',
+      body: JSON.stringify({ fileId }),
+    });
+  }
+
+  /**
+   * Upload bytes then create the photo row. If createPhoto fails after a
+   * successful upload, best-effort delete the orphaned media file.
+   */
+  async uploadAndCreatePhoto(
+    file: { base64: string; type: string; name: string },
+    photoData: Partial<Photo> & { property: string }
+  ): Promise<Photo> {
+    const fileId = await this.uploadFile({
+      ...file,
+      propertyId: photoData.property,
+    });
+    try {
+      return await this.createPhoto({ ...photoData, file: fileId });
+    } catch (err) {
+      try {
+        await this.deleteUploadedFile(fileId);
+      } catch (cleanupErr) {
+        console.warn('[photosService] orphan cleanup failed:', cleanupErr);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -119,4 +156,3 @@ class PhotosService {
 }
 
 export const photosService = new PhotosService();
-

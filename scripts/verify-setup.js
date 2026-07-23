@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-
 /**
- * Verifies that the project is set up correctly
+ * Verifies Project Renter Guardian local setup (Firebase + Expo).
  */
 
 const fs = require('fs');
@@ -10,97 +9,89 @@ const path = require('path');
 let hasErrors = false;
 let hasWarnings = false;
 
-console.log('🔍 Verifying Project Renter Guardian setup...\n');
+console.log('Verifying Project Renter Guardian setup...\n');
 
-// Check .env file
 const envPath = path.join(__dirname, '..', '.env');
+const requiredFirebaseVars = [
+  'EXPO_PUBLIC_FIREBASE_API_KEY',
+  'EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN',
+  'EXPO_PUBLIC_FIREBASE_PROJECT_ID',
+  'EXPO_PUBLIC_FIREBASE_APP_ID',
+];
+
 if (fs.existsSync(envPath)) {
   try {
     const envContent = fs.readFileSync(envPath, 'utf8');
-    if (envContent.includes('EXPO_PUBLIC_DIRECTUS_URL')) {
-      const urlMatch = envContent.match(/EXPO_PUBLIC_DIRECTUS_URL=(.+)/);
-      if (urlMatch && urlMatch[1] && !urlMatch[1].includes('your-directus-instance')) {
-        console.log('✅ .env file configured with Directus URL');
-      } else {
-        console.log('⚠️  .env file exists but Directus URL not configured (will use mock mode)');
-        hasWarnings = true;
-      }
+    const missing = requiredFirebaseVars.filter((key) => {
+      const re = new RegExp(`^${key}=(.+)$`, 'm');
+      const m = envContent.match(re);
+      return !m || !m[1] || m[1].includes('your-');
+    });
+    if (missing.length === 0) {
+      console.log('OK  .env has required EXPO_PUBLIC_FIREBASE_* vars');
     } else {
-      console.log('⚠️  .env file exists but missing EXPO_PUBLIC_DIRECTUS_URL (will use mock mode)');
+      console.log('WARN missing or placeholder Firebase env vars:', missing.join(', '));
       hasWarnings = true;
     }
-  } catch (error) {
-    // .env file exists but can't be read (might be protected)
-    console.log('✅ .env file exists (protected, cannot verify contents)');
+    if (envContent.includes('EXPO_PUBLIC_DIRECTUS_URL')) {
+      console.log('WARN EXPO_PUBLIC_DIRECTUS_URL is obsolete; remove it from .env');
+      hasWarnings = true;
+    }
+  } catch {
+    console.log('OK  .env exists (could not read contents)');
   }
 } else {
-  console.log('⚠️  .env file not found (will use mock mode)');
+  console.log('WARN .env not found — copy Firebase web config into a root .env');
   hasWarnings = true;
 }
 
-// Check assets
 const assetsDir = path.join(__dirname, '..', 'assets');
 const requiredAssets = ['icon.png', 'splash.png', 'adaptive-icon.png', 'favicon.png'];
-const missingAssets = [];
-
-requiredAssets.forEach(asset => {
-  const assetPath = path.join(assetsDir, asset);
-  if (fs.existsSync(assetPath)) {
-    console.log(`✅ ${asset} found`);
+requiredAssets.forEach((asset) => {
+  if (fs.existsSync(path.join(assetsDir, asset))) {
+    console.log(`OK  assets/${asset}`);
   } else {
-    console.log(`⚠️  ${asset} missing`);
-    missingAssets.push(asset);
+    console.log(`WARN missing assets/${asset}`);
     hasWarnings = true;
   }
 });
 
-// Check node_modules
-const nodeModulesPath = path.join(__dirname, '..', 'node_modules');
-if (fs.existsSync(nodeModulesPath)) {
-  console.log('✅ node_modules installed');
+if (fs.existsSync(path.join(__dirname, '..', 'node_modules'))) {
+  console.log('OK  node_modules installed');
 } else {
-  console.log('❌ node_modules not found - run "npm install"');
+  console.log('ERR node_modules missing — run npm install');
   hasErrors = true;
 }
 
-// Check key files
 const keyFiles = [
   'package.json',
   'app.json',
   'tsconfig.json',
   'babel.config.js',
-  'src/services/directus.ts',
+  'src/services/backendClient.ts',
+  'src/services/firebase.ts',
+  'functions/src/index.ts',
+  'functions/src/firestore/index.ts',
   'app/_layout.tsx',
 ];
 
-keyFiles.forEach(file => {
-  const filePath = path.join(__dirname, '..', file);
-  if (fs.existsSync(filePath)) {
-    console.log(`✅ ${file} exists`);
+keyFiles.forEach((file) => {
+  if (fs.existsSync(path.join(__dirname, '..', file))) {
+    console.log(`OK  ${file}`);
   } else {
-    console.log(`❌ ${file} missing`);
+    console.log(`ERR missing ${file}`);
     hasErrors = true;
   }
 });
 
-console.log('\n' + '='.repeat(50));
-
+console.log('');
 if (hasErrors) {
-  console.log('\n❌ Setup incomplete - please fix the errors above');
+  console.log('Setup has errors.');
   process.exit(1);
-} else if (hasWarnings) {
-  console.log('\n⚠️  Setup complete with warnings');
-  if (missingAssets.length > 0) {
-    console.log('\nTo create placeholder assets, run:');
-    console.log('  npm run setup-assets');
-  }
-  console.log('\nYou can start development with:');
-  console.log('  npm start');
-  process.exit(0);
-} else {
-  console.log('\n✅ Setup complete! All checks passed.');
-  console.log('\nYou can start development with:');
-  console.log('  npm start');
+}
+if (hasWarnings) {
+  console.log('Setup OK with warnings.');
   process.exit(0);
 }
-
+console.log('Setup looks good.');
+process.exit(0);

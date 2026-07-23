@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { PRGButton, PRGInput, PRGHeader, useToast, ScrollableScreenContainer } from '../../../../src/components';
-import { propertiesService } from '../../../../src/services/propertiesService';
+import { usePropertiesStore } from '../../../../src/state/propertiesStore';
 import { spacing, typography } from '../../../../src/theme';
 import { useTheme } from '../../../../src/theme/useTheme';
 
@@ -11,6 +11,7 @@ export default function PropertyAddressEditScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { showToast } = useToast();
   const { colors } = useTheme();
+  const updateProperty = usePropertiesStore((s) => s.updateProperty);
   const [street, setStreet] = useState('');
   const [unit, setUnit] = useState('');
   const [city, setCity] = useState('');
@@ -24,8 +25,8 @@ export default function PropertyAddressEditScreen() {
     const loadProperty = async () => {
       if (!id) return;
       try {
-        setInitialLoading(true);
-        const property = await propertiesService.getProperty(id);
+        const cached = usePropertiesStore.getState().byId[id];
+        const property = cached ?? (await usePropertiesStore.getState().fetchOne(id));
         setStreet(property.street || '');
         setUnit(property.unit || '');
         setCity(property.city || '');
@@ -38,8 +39,8 @@ export default function PropertyAddressEditScreen() {
         setInitialLoading(false);
       }
     };
-    loadProperty();
-  }, [id]);
+    void loadProperty();
+  }, [id, showToast]);
 
   const handleSave = async () => {
     if (!id) return;
@@ -83,7 +84,7 @@ export default function PropertyAddressEditScreen() {
       ].filter(Boolean);
       const addressFreeText = addressParts.join(', ');
 
-      await propertiesService.updateProperty(id, {
+      await updateProperty(id, {
         street: street.trim(),
         unit: unit.trim() || undefined,
         city: city.trim(),

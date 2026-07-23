@@ -8,6 +8,9 @@ import * as FileSystem from 'expo-file-system';
 import { PRGHeader, PRGPhotoGrid, PRGEmptyState, useToast, PRGLoadingOverlay, SVGIcon } from '../../../../../../src/components';
 import { photosService } from '../../../../../../src/services/photosService';
 import { processImageForUpload } from '../../../../../../src/services/photoUploadService';
+import { usePropertiesStore } from '../../../../../../src/state/propertiesStore';
+import { capturedAtFromExif } from '../../../../../../src/utils/cmsDateTime';
+import { canEditProperty } from '../../../../../../src/utils/propertyAccess';
 import { colors, spacing, typography } from '../../../../../../src/theme';
 import { useTheme } from '../../../../../../src/theme/useTheme';
 import type { Photo } from '../../../../../../src/types';
@@ -22,10 +25,32 @@ export default function AddPhotosScreen() {
   const [filter, setFilter] = useState<'all' | 'unassigned' | 'assigned'>('all');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
 
   // Handle array params (Expo Router sometimes returns arrays)
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const spaceId = Array.isArray(params.spaceId) ? params.spaceId[0] : params.spaceId;
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      const cached = usePropertiesStore.getState().byId[id];
+      if (cached) {
+        if (!cancelled) setCanEdit(canEditProperty(cached));
+        return;
+      }
+      try {
+        const prop = await usePropertiesStore.getState().fetchOne(id);
+        if (!cancelled) setCanEdit(canEditProperty(prop));
+      } catch {
+        if (!cancelled) setCanEdit(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   const loadPhotos = useCallback(async () => {
     if (!id) return;
@@ -62,6 +87,7 @@ export default function AddPhotosScreen() {
   };
 
   const handlePickImages = async () => {
+    if (!canEdit) return;
     const hasPermission = await requestPermissions();
     if (!hasPermission) return;
 
@@ -79,6 +105,7 @@ export default function AddPhotosScreen() {
   };
 
   const handleTakePhoto = async () => {
+    if (!canEdit) return;
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       alert('Permission to access camera is required!');
@@ -98,6 +125,7 @@ export default function AddPhotosScreen() {
   };
 
   const handlePickFiles = async () => {
+    if (!canEdit) return;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: '*/*', // Allow all file types
@@ -135,52 +163,54 @@ export default function AddPhotosScreen() {
   };
 
   const uploadDocumentFiles = async (documents: DocumentPicker.DocumentPickerAsset[]) => {
-    if (!id || !spaceId) return;
+    if (!id || !spaceId || !canEdit) return;
 
     setUploading(true);
+    let successCount = 0;
+    let failCount = 0;
 
     try {
       for (let i = 0; i < documents.length; i++) {
         const document = documents[i];
-
-        // Process document file
-        const processed = await processDocumentFile(document);
-
-        const file = {
-          base64: processed.base64,
-          type: processed.mimeType,
-          name: processed.fileName,
-        };
-
-        // Upload file and get file ID
-        const fileId = await photosService.uploadFile(file);
-
-        // Create photo metadata with space assignment
-        const photoData = {
-          property: id,
-          file: fileId,
-          captured_at: document.modificationTime
-            ? new Date(document.modificationTime).toISOString()
-            : new Date().toISOString(),
-          space: spaceId,
-          assignment_status: 'confirmed' as const,
-        };
-
-        await photosService.createPhoto(photoData);
+        try {
+          const processed = await processDocumentFile(document);
+          await photosService.uploadAndCreatePhoto(
+            {
+              base64: processed.base64,
+              type: processed.mimeType,
+              name: processed.fileName,
+            },
+            {
+              property: id,
+              captured_at: document.modificationTime
+                ? new Date(document.modificationTime).toISOString()
+                : new Date().toISOString(),
+              space: spaceId,
+              assignment_status: 'confirmed' as const,
+            }
+          );
+          successCount += 1;
+        } catch (error) {
+          failCount += 1;
+          console.error('Upload error:', error);
+        }
       }
 
-      showToast(`${documents.length} file(s) uploaded`, 'success');
-      // Reload photos to show the newly uploaded ones
+      if (failCount === 0) {
+        showToast(`${successCount} file(s) uploaded`, 'success');
+      } else if (successCount === 0) {
+        showToast('Failed to upload files', 'error');
+      } else {
+        showToast(`${successCount} uploaded, ${failCount} failed`, 'error');
+      }
       await loadPhotos();
-    } catch (error) {
-      console.error('Upload error:', error);
-      showToast('Failed to upload files', 'error');
     } finally {
       setUploading(false);
     }
   };
 
   const handleUploadPhotos = () => {
+    if (!canEdit) return;
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
@@ -228,53 +258,52 @@ export default function AddPhotosScreen() {
   };
 
   const uploadPhotos = async (assets: ImagePickerAsset[]) => {
-    if (!id || !spaceId) return;
+    if (!id || !spaceId || !canEdit) return;
 
     setUploading(true);
+    let successCount = 0;
+    let failCount = 0;
 
     try {
       for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
-
-        // Process image (handles HEIC conversion and base64 conversion)
-        const processed = await processImageForUpload(asset);
-
-        const file = {
-          base64: processed.base64,
-          type: processed.mimeType,
-          name: processed.fileName,
-        };
-
-        // Upload file and get file ID
-        const fileId = await photosService.uploadFile(file);
-
-        // Create photo metadata with space assignment
-        const photoData = {
-          property: id,
-          file: fileId,
-          captured_at: asset.exif?.DateTimeOriginal
-            ? new Date(asset.exif.DateTimeOriginal).toISOString()
-            : new Date().toISOString(),
-          space: spaceId,
-          assignment_status: 'confirmed' as const,
-        };
-
-        await photosService.createPhoto(photoData);
+        try {
+          const processed = await processImageForUpload(asset);
+          await photosService.uploadAndCreatePhoto(
+            {
+              base64: processed.base64,
+              type: processed.mimeType,
+              name: processed.fileName,
+            },
+            {
+              property: id,
+              captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
+              space: spaceId,
+              assignment_status: 'confirmed' as const,
+            }
+          );
+          successCount += 1;
+        } catch (error) {
+          failCount += 1;
+          console.error('Upload error:', error);
+        }
       }
 
-      showToast(`${assets.length} photo(s) uploaded`, 'success');
-      // Reload photos to show the newly uploaded ones
+      if (failCount === 0) {
+        showToast(`${successCount} photo(s) uploaded`, 'success');
+      } else if (successCount === 0) {
+        showToast('Failed to upload photos', 'error');
+      } else {
+        showToast(`${successCount} uploaded, ${failCount} failed`, 'error');
+      }
       await loadPhotos();
-    } catch (error) {
-      console.error('Upload error:', error);
-      showToast('Failed to upload photos', 'error');
     } finally {
       setUploading(false);
     }
   };
 
   const handlePhotoPress = (photo: Photo) => {
-    if (!spaceId) return;
+    if (!spaceId || !canEdit) return;
 
     // Assign photo to current space
     photosService
@@ -297,10 +326,14 @@ export default function AddPhotosScreen() {
       <PRGHeader
         title="Add Photos"
         showBack
-        rightAction={{
-          icon: <SVGIcon source={PlusFillIcon} size={24} />,
-          onPress: handleUploadPhotos,
-        }}
+        rightAction={
+          canEdit
+            ? {
+                icon: <SVGIcon source={PlusFillIcon} size={24} />,
+                onPress: handleUploadPhotos,
+              }
+            : undefined
+        }
       />
       <View style={styles.filters}>
         <TouchableOpacity
@@ -337,7 +370,7 @@ export default function AddPhotosScreen() {
         ) : photos.length === 0 ? (
           <PRGEmptyState
             title="No Photos"
-            message="Upload photos to get started"
+            message={canEdit ? 'Upload photos to get started' : 'No photos yet'}
           />
         ) : (
           <PRGPhotoGrid

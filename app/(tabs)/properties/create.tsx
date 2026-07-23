@@ -1,8 +1,16 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
-import { PRGButton, PRGInput, PRGHeader, DateField, useToast } from '../../../src/components';
+import {
+  PRGButton,
+  PRGInput,
+  PRGHeader,
+  DateField,
+  PRGConfirmDialog,
+  useToast,
+} from '../../../src/components';
 import { propertiesService } from '../../../src/services/propertiesService';
+import { useDiscardableForm } from '../../../src/hooks/useDiscardableForm';
 import { spacing, typography } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
 import { isRequired } from '../../../src/utils/validation';
@@ -20,6 +28,38 @@ export default function CreatePropertyScreen() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const isDirty = useMemo(
+    () =>
+      Boolean(
+        address.trim() ||
+          leaseStartISO ||
+          leaseEndISO ||
+          nickname.trim() ||
+          stateCode.trim()
+      ),
+    [address, leaseStartISO, leaseEndISO, nickname, stateCode]
+  );
+
+  const discard = useDiscardableForm(isDirty, {
+    title: 'Discard property?',
+    message:
+      'You have started entering property details. Discarding will not create a property or any rooms.',
+    keepEditingLabel: 'Keep editing',
+    discardLabel: 'Discard',
+  });
+
+  const leaveWithoutCreating = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace(Routes.PROPERTIES.LIST);
+    }
+  };
+
+  const handleCancel = () => {
+    discard.requestLeave(leaveWithoutCreating);
+  };
+
   const handleCreate = async () => {
     if (!isRequired(address) || !isRequired(leaseStartISO)) {
       setError('Address and lease start date are required');
@@ -32,15 +72,13 @@ export default function CreatePropertyScreen() {
     try {
       const property = await propertiesService.createProperty({
         address_free_text: address,
-        lease_start_date: leaseStartISO,
+        lease_start_date: leaseStartISO!,
         lease_end_date: leaseEndISO || undefined,
         nickname: nickname || undefined,
         state_code: stateCode || undefined,
       });
 
       showToast('Property created', 'success');
-      // Reset navigation stack: go to Properties list first, then navigate to property detail
-      // This ensures back button goes to Properties list instead of creation screen
       router.replace(Routes.PROPERTIES.LIST);
       router.push(Routes.PROPERTIES.DETAIL(property.id));
     } catch (err: any) {
@@ -53,66 +91,110 @@ export default function CreatePropertyScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <PRGHeader title="Create Property" showBack />
-    <KeyboardAvoidingView
+      <PRGHeader
+        title="Create Property"
+        showBack
+        onBack={handleCancel}
+        rightAction={{
+          label: 'Cancel',
+          onPress: handleCancel,
+        }}
+      />
+      <KeyboardAvoidingView
         style={styles.keyboardView}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent} scrollEnabled={Platform.OS === 'web'}>
-        <View style={styles.content}>
-          {error ? <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text> : null}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          scrollEnabled={Platform.OS === 'web'}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.content}>
+            <Text style={[styles.helper, { color: colors.textSecondary }]}>
+              Add a place you live or have lived. Required fields are marked with *.
+            </Text>
 
-          <PRGInput
-            label="Address *"
-            value={address}
-            onChangeText={setAddress}
-            placeholder="123 Main St, City, State ZIP"
-            autoCapitalize="words"
-          />
+            {error ? (
+              <Text
+                style={[styles.errorText, { color: colors.error }]}
+                accessibilityLiveRegion="polite"
+              >
+                {error}
+              </Text>
+            ) : null}
 
-          <DateField
-            label="Lease Start Date *"
-            valueISO={leaseStartISO}
-            onChangeISO={setLeaseStartISO}
-            dateOnly={true}
-            placeholder="Select lease start date"
-          />
+            <PRGInput
+              label="Address *"
+              value={address}
+              onChangeText={setAddress}
+              placeholder="123 Main St, City, State ZIP"
+              autoCapitalize="words"
+            />
 
-          <DateField
-            label="Lease End Date"
-            valueISO={leaseEndISO}
-            onChangeISO={setLeaseEndISO}
-            dateOnly={true}
-            minimumISO={leaseStartISO || undefined}
-            placeholder="Select lease end date (optional)"
-          />
+            <DateField
+              label="Lease Start Date *"
+              valueISO={leaseStartISO}
+              onChangeISO={setLeaseStartISO}
+              dateOnly={true}
+              placeholder="Select lease start date"
+            />
 
-          <PRGInput
-            label="Nickname"
-            value={nickname}
-            onChangeText={setNickname}
-            placeholder="e.g., Downtown Apartment (optional)"
-          />
+            <DateField
+              label="Lease End Date"
+              valueISO={leaseEndISO}
+              onChangeISO={setLeaseEndISO}
+              dateOnly={true}
+              minimumISO={leaseStartISO || undefined}
+              placeholder="Select lease end date (optional)"
+            />
 
-          <PRGInput
-            label="State Code"
-            value={stateCode}
-            onChangeText={setStateCode}
-            placeholder="e.g., CA (recommended)"
-            autoCapitalize="characters"
-            maxLength={2}
-          />
+            <PRGInput
+              label="Nickname"
+              value={nickname}
+              onChangeText={setNickname}
+              placeholder="e.g., Downtown Apartment (optional)"
+            />
 
-          <PRGButton
-            title="Create Property"
-            onPress={handleCreate}
-            loading={loading}
-            style={styles.button}
-          />
+            <PRGInput
+              label="State / region code"
+              value={stateCode}
+              onChangeText={setStateCode}
+              placeholder="e.g., CA (optional)"
+              autoCapitalize="characters"
+              maxLength={2}
+            />
 
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+            <PRGButton
+              title="Create Property"
+              onPress={handleCreate}
+              loading={loading}
+              style={styles.button}
+              accessibilityLabel="Create property"
+            />
+
+            <PRGButton
+              title="Cancel"
+              onPress={handleCancel}
+              variant="ghost"
+              disabled={loading}
+              style={styles.button}
+              accessibilityLabel="Cancel property creation"
+              accessibilityHint="Leaves without creating a property"
+            />
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      <PRGConfirmDialog
+        visible={discard.confirmVisible}
+        title={discard.confirmTitle}
+        message={discard.confirmMessage}
+        cancelLabel={discard.keepEditingLabel}
+        confirmLabel={discard.discardLabel}
+        destructive
+        onCancel={discard.keepEditing}
+        onConfirm={discard.confirmDiscard}
+      />
     </View>
   );
 }
@@ -132,6 +214,12 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
+  helper: {
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.regular,
+    lineHeight: 20,
+    marginBottom: spacing.lg,
+  },
   button: {
     marginTop: spacing.md,
   },
@@ -141,5 +229,3 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
-
-

@@ -1,7 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PRGButton, PRGToast, useToast, ScreenContainer } from '../../src/components';
+import {
+  PRGButton,
+  PRGToast,
+  PRGConfirmDialog,
+  PRGLoadingOverlay,
+  useToast,
+  ScreenContainer,
+} from '../../src/components';
 import { useAuthStore } from '../../src/state/authStore';
 import { useRouter } from 'expo-router';
 import { spacing, typography } from '../../src/theme';
@@ -17,6 +24,8 @@ export default function ProfileScreen() {
   const { showToast } = useToast();
   const [showLogoutToast, setShowLogoutToast] = useState(false);
   const [appProfile, setAppProfile] = useState<AppProfile | null>(null);
+  const [confirmDeleteStep, setConfirmDeleteStep] = useState<0 | 1 | 2>(0);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -32,32 +41,51 @@ export default function ProfileScreen() {
 
   const handleLogout = async () => {
     try {
-      // Show success message
       setShowLogoutToast(true);
       setLogoutMessage('You have been successfully logged out');
-      
-      // Perform logout immediately
       await logout(false);
-      
-      // Immediately update auth state and redirect
-        setAuthState(false, null);
-        router.replace('/(auth)/login');
+      setAuthState(false, null);
+      router.replace('/welcome');
     } catch (error) {
       console.error('Logout error:', error);
-      // Even if logout fails, show message and redirect
       setShowLogoutToast(true);
       setLogoutMessage('You have been successfully logged out');
-        setAuthState(false, null);
-        router.replace('/(auth)/login');
+      setAuthState(false, null);
+      router.replace('/welcome');
+    }
+  };
+
+  const finishAccountDeleted = async () => {
+    setLogoutMessage('Your account has been deleted');
+    try {
+      await logout(false);
+    } catch {
+      // Auth user may already be gone
+    }
+    setAuthState(false, null);
+    router.replace('/welcome');
+  };
+
+  const handleDeleteConfirmed = async () => {
+    setConfirmDeleteStep(0);
+    setDeleting(true);
+    try {
+      await appProfileService.deleteAccount();
+      showToast('Account deleted', 'success');
+      await finishAccountDeleted();
+    } catch (error: any) {
+      console.error('Delete account error:', error);
+      showToast(error?.message || 'Failed to delete account', 'error');
+      setDeleting(false);
     }
   };
 
   return (
     <ScreenContainer includeBottomSafeArea={false}>
-      <ScrollView 
+      <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingBottom: insets.bottom + spacing.xl }
+          { paddingBottom: insets.bottom + spacing.xl },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -82,9 +110,42 @@ export default function ProfileScreen() {
           onPress={handleLogout}
           variant="secondary"
           style={styles.button}
+          disabled={deleting}
+        />
+
+        <PRGButton
+          title="Delete Account"
+          onPress={() => setConfirmDeleteStep(1)}
+          variant="danger"
+          style={styles.deleteButton}
+          disabled={deleting}
+          accessibilityLabel="Delete account"
+          accessibilityHint="Permanently deletes your account and all data"
         />
       </ScrollView>
-      
+
+      <PRGConfirmDialog
+        visible={confirmDeleteStep === 1}
+        title="Delete account?"
+        message="This will permanently remove your properties, photos, inspections, and profile."
+        confirmLabel="Continue"
+        cancelLabel="Cancel"
+        destructive
+        onCancel={() => setConfirmDeleteStep(0)}
+        onConfirm={() => setConfirmDeleteStep(2)}
+      />
+
+      <PRGConfirmDialog
+        visible={confirmDeleteStep === 2}
+        title="Are you sure?"
+        message="This is irreversible."
+        confirmLabel="Delete forever"
+        cancelLabel="Cancel"
+        destructive
+        onCancel={() => setConfirmDeleteStep(0)}
+        onConfirm={handleDeleteConfirmed}
+      />
+
       <PRGToast
         message="You have been successfully logged out"
         type="success"
@@ -92,6 +153,8 @@ export default function ProfileScreen() {
         onHide={() => setShowLogoutToast(false)}
         duration={4000}
       />
+
+      {deleting ? <PRGLoadingOverlay visible message="Deleting account…" /> : null}
     </ScreenContainer>
   );
 }
@@ -119,6 +182,7 @@ const styles = StyleSheet.create({
   button: {
     marginTop: spacing.md,
   },
+  deleteButton: {
+    marginTop: spacing.lg,
+  },
 });
-
-

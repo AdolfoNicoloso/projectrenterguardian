@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
-import { PRGButton, PRGInput, PRGToast, ScrollableScreenContainer } from '../../src/components';
+import { PRGButton, PRGInput, PRGToast, ScrollableScreenContainer, PhoneAuthForm } from '../../src/components';
 import { useAuthStore } from '../../src/state/authStore';
+import { getAuthErrorMessage } from '../../src/utils/authErrors';
 import { spacing, typography } from '../../src/theme';
 import { useTheme } from '../../src/theme/useTheme';
 import { isRequired } from '../../src/utils/validation';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, signInWithGoogle: signInWithGoogleStore, logoutMessage, clearLogoutMessage } = useAuthStore();
+  const { login, signInWithGoogle: signInWithGoogleStore, completePhoneSignIn, logoutMessage, clearLogoutMessage } = useAuthStore();
   const { colors } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -17,12 +18,11 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showLogoutToast, setShowLogoutToast] = useState(false);
+  const [mode, setMode] = useState<'email' | 'phone'>('email');
 
-  // Show logout message if it exists
   useEffect(() => {
     if (logoutMessage) {
       setShowLogoutToast(true);
-      // Clear message after 3 seconds
       const timer = setTimeout(() => {
         setShowLogoutToast(false);
         clearLogoutMessage();
@@ -42,11 +42,10 @@ export default function LoginScreen() {
 
     try {
       await login(email, password);
-      // Use routing resolver instead of direct navigation
       const { resolvePostAuthRoute } = await import('../../src/utils/routingResolver');
       await resolvePostAuthRoute();
-    } catch (err: any) {
-      setError(err.message || 'Login failed');
+    } catch (err: unknown) {
+      setError(getAuthErrorMessage(err, 'Sign-in failed. Check your email and password.'));
     } finally {
       setLoading(false);
     }
@@ -58,16 +57,13 @@ export default function LoginScreen() {
 
     try {
       await signInWithGoogleStore();
-      // Use routing resolver instead of direct navigation
       const { resolvePostAuthRoute } = await import('../../src/utils/routingResolver');
       await resolvePostAuthRoute();
     } catch (err: any) {
-      // If redirecting, don't show error (user will be redirected)
-      if (err.message === 'Redirecting to Google sign-in...') {
-        // Keep loading state - user will be redirected
+      if (err?.message === 'Redirecting to Google sign-in...') {
         return;
       }
-      setError(err.message || 'Google sign-in failed');
+      setError(getAuthErrorMessage(err, 'Google sign-in failed. Please try again.'));
       setGoogleLoading(false);
     }
   };
@@ -89,35 +85,85 @@ export default function LoginScreen() {
           <Text style={[styles.title, { color: colors.text }]}>Renter Guardian</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Sign in to your account</Text>
 
-          {error ? <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text> : null}
+          {error ? (
+            <Text
+              style={[styles.errorText, { color: colors.error }]}
+              accessibilityLiveRegion="polite"
+            >
+              {error}
+            </Text>
+          ) : null}
 
-          <PRGInput
-            label="Email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoComplete="email"
-            placeholder="Enter your email"
-          />
+          <View style={styles.modeRow}>
+            <PRGButton
+              title="Email"
+              onPress={() => {
+                setMode('email');
+                setError('');
+              }}
+              variant={mode === 'email' ? 'primary' : 'secondary'}
+              style={styles.modeButton}
+            />
+            <PRGButton
+              title="Phone"
+              onPress={() => {
+                setMode('phone');
+                setError('');
+              }}
+              variant={mode === 'phone' ? 'primary' : 'secondary'}
+              style={styles.modeButton}
+            />
+          </View>
 
-          <PRGInput
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoCapitalize="none"
-            autoComplete="password"
-            placeholder="Enter your password"
-          />
+          {mode === 'phone' ? (
+            <PhoneAuthForm
+              onError={setError}
+              onSuccess={async () => {
+                await completePhoneSignIn();
+                const { resolvePostAuthRoute } = await import('../../src/utils/routingResolver');
+                await resolvePostAuthRoute();
+              }}
+            />
+          ) : (
+            <>
+              <PRGInput
+                label="Email"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                placeholder="Enter your email"
+              />
 
-          <PRGButton
-            title="Sign In"
-            onPress={handleLogin}
-            loading={loading}
-            disabled={googleLoading}
-            style={styles.button}
-          />
+              <PRGInput
+                label="Password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoCapitalize="none"
+                autoComplete="password"
+                placeholder="Enter your password"
+              />
+
+              <Pressable
+                onPress={() => router.push('/(auth)/forgot-password')}
+                style={styles.forgotLink}
+                accessibilityRole="link"
+                accessibilityLabel="Forgot password"
+              >
+                <Text style={[styles.forgotText, { color: colors.primary }]}>Forgot password?</Text>
+              </Pressable>
+
+              <PRGButton
+                title="Sign In"
+                onPress={handleLogin}
+                loading={loading}
+                disabled={googleLoading}
+                style={styles.button}
+              />
+            </>
+          )}
 
           <View style={styles.divider}>
             <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
@@ -142,7 +188,7 @@ export default function LoginScreen() {
           />
         </View>
       </ScrollableScreenContainer>
-      
+
       {logoutMessage && (
         <PRGToast
           message={logoutMessage}
@@ -185,8 +231,29 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: spacing.xl,
   },
+  forgotLink: {
+    alignSelf: 'flex-end',
+    marginTop: spacing.xs,
+    marginBottom: spacing.xs,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xs,
+  },
+  forgotText: {
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.medium,
+    fontWeight: typography.fontWeight.medium,
+  },
   button: {
     marginTop: spacing.md,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  modeButton: {
+    flex: 1,
   },
   errorText: {
     fontSize: typography.fontSize.sm,
@@ -210,4 +277,3 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily.medium,
   },
 });
-

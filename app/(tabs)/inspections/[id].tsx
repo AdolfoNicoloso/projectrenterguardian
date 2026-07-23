@@ -3,15 +3,26 @@ import { View, Text, StyleSheet, ScrollView, Alert, Platform } from 'react-nativ
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import type { ImagePickerAsset } from 'expo-image-picker';
-import { PRGHeader, PRGButton, PRGInput, PRGLoadingOverlay, useToast } from '../../../src/components';
+import { PRGHeader, PRGButton, PRGInput, PRGLoadingOverlay, PRGConfirmDialog, PhotoCaptureNotesSheet, useToast } from '../../../src/components';
 import { inspectionsService } from '../../../src/services/inspectionsService';
-import { propertiesService } from '../../../src/services/propertiesService';
 import { spacesService } from '../../../src/services/spacesService';
 import { reportsService } from '../../../src/services/reportsService';
 import { photosService } from '../../../src/services/photosService';
 import { processImageForUpload } from '../../../src/services/photoUploadService';
+import { usePropertiesStore } from '../../../src/state/propertiesStore';
+import { capturedAtFromExif } from '../../../src/utils/cmsDateTime';
 import { colors, spacing, typography } from '../../../src/theme';
+import { useTheme } from '../../../src/theme/useTheme';
 import type { Inspection, InspectionStep, Property, Space } from '../../../src/types';
+import {
+  getInspectionTypeCopy,
+  getInspectionTypeLabel,
+} from '../../../src/constants/inspectionTypes';
+import { GuidedWalkSpacesStep } from '../../../src/screens/inspection/GuidedWalkSpacesStep';
+import {
+  countInspectionSnapshot,
+  mergeInspectionWizardPayload,
+} from '../../../src/utils/inspectionSnapshot';
 
 const STEP_KEYS = [
   'intro',
@@ -25,15 +36,34 @@ const STEP_KEYS = [
 
 type StepKey = typeof STEP_KEYS[number];
 
+/** Steps shown in the guided flow (confirm_scope is legacy and auto-skipped). */
+const VISIBLE_STEP_KEYS: StepKey[] = STEP_KEYS.filter((k) => k !== 'confirm_scope');
+
 const STEP_TITLES: Record<StepKey, string> = {
   intro: 'Introduction',
   choose_property: 'Choose Property',
-  confirm_scope: 'Confirm Scope',
+  confirm_scope: 'Preparing',
   capture_overview: 'Capture Overview',
-  capture_spaces: 'Capture Spaces',
+  capture_spaces: 'Document spaces',
   review: 'Review',
   complete: 'Complete',
 };
+
+function wizardStepsForInspection(hasProperty: boolean): StepKey[] {
+  return hasProperty
+    ? VISIBLE_STEP_KEYS.filter((k) => k !== 'choose_property')
+    : VISIBLE_STEP_KEYS;
+}
+
+function resolvePreviousWizardStep(
+  current: StepKey,
+  hasProperty: boolean
+): StepKey | null {
+  const steps = wizardStepsForInspection(hasProperty);
+  const idx = steps.indexOf(current);
+  if (idx <= 0) return null;
+  return steps[idx - 1];
+}
 
 export default function InspectionWizardScreen() {
   const router = useRouter();
@@ -42,11 +72,21 @@ export default function InspectionWizardScreen() {
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [currentStep, setCurrentStep] = useState<StepKey>('intro');
   const [stepData, setStepData] = useState<InspectionStep | null>(null);
+  const [allSteps, setAllSteps] = useState<InspectionStep[]>([]);
   const [property, setProperty] = useState<Property | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleteStage, setDeleteStage] = useState<null | 'confirm' | 'confirmAgain'>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const appendSpace = useCallback((space: Space) => {
+    setSpaces((prev) => {
+      if (prev.some((s) => s.id === space.id)) return prev;
+      return [...prev, space];
+    });
+  }, []);
 
   useEffect(() => {
     if (id) {
@@ -57,30 +97,41 @@ export default function InspectionWizardScreen() {
   const loadInspection = async () => {
     if (!id) return;
     try {
-      setLoading(true);
+      // Keep wizard visible if we already have data (e.g. soft revisit).
+      if (!inspection) {
+        setLoading(true);
+      }
       const [inspectionData, steps, propertiesData] = await Promise.all([
         inspectionsService.getInspection(id),
         inspectionsService.getInspectionSteps(id),
-        propertiesService.getMyProperties().catch(() => []),
+        usePropertiesStore
+          .getState()
+          .fetchList({ force: false })
+          .catch(() => usePropertiesStore.getState().getList()),
       ]);
       setInspection(inspectionData);
       setProperties(propertiesData);
+      setAllSteps(steps);
 
-      // Determine current step
-      const lastStep = inspectionData.last_step || 'intro';
+      let lastStep = inspectionData.last_step || 'intro';
+      // Legacy multi-select step — jump into overview / walk flow.
+      if (lastStep === 'confirm_scope') {
+        lastStep = 'capture_overview';
+      }
       const stepKey = STEP_KEYS.includes(lastStep as StepKey) ? (lastStep as StepKey) : 'intro';
       setCurrentStep(stepKey);
 
-      // Load current step data
       const currentStepData = steps.find((s) => s.step_key === stepKey);
       if (currentStepData) {
         setStepData(currentStepData);
       }
 
-      // Load property and spaces if needed
       if (inspectionData.property_id) {
         try {
-          const prop = await propertiesService.getProperty(inspectionData.property_id);
+          const cached = usePropertiesStore.getState().byId[inspectionData.property_id];
+          const prop =
+            cached ??
+            (await usePropertiesStore.getState().fetchOne(inspectionData.property_id));
           setProperty(prop);
           const spacesData = await spacesService.getSpaces(prop.id);
           setSpaces(spacesData);
@@ -96,18 +147,73 @@ export default function InspectionWizardScreen() {
     }
   };
 
+  const handleWizardBack = async () => {
+    const hasProperty = Boolean(inspection?.property_id);
+    const previous = resolvePreviousWizardStep(currentStep, hasProperty);
+    if (!previous) {
+      router.replace('/(tabs)/inspections');
+      return;
+    }
+
+    let steps = allSteps;
+    if ((!steps || steps.length === 0) && id) {
+      try {
+        steps = await inspectionsService.getInspectionSteps(id);
+        setAllSteps(steps);
+      } catch (error) {
+        console.error('Error loading steps for back navigation:', error);
+        showToast('Failed to go back', 'error');
+        return;
+      }
+    }
+
+    const previousStepData = steps.find((s) => s.step_key === previous);
+    if (!previousStepData) {
+      showToast('Previous step not found', 'error');
+      return;
+    }
+
+    setCurrentStep(previous);
+    setStepData(previousStepData);
+
+    if (id) {
+      const flow = wizardStepsForInspection(hasProperty);
+      const prevIndex = flow.indexOf(previous);
+      const progress = Math.min(99, Math.floor(((prevIndex + 1) / flow.length) * 100));
+      try {
+        await inspectionsService.updateInspection(id, {
+          last_step: previous,
+          inspections_progress: progress,
+        });
+        setInspection((prev) =>
+          prev
+            ? { ...prev, last_step: previous, inspections_progress: progress }
+            : prev
+        );
+      } catch (error) {
+        console.error('Error updating inspection on back:', error);
+      }
+    }
+  };
+
   const saveStepAndContinue = async (payload: any, nextStep?: StepKey) => {
     if (!id || !stepData) return;
 
     setSaving(true);
     try {
-      // Calculate progress
-      const currentIndex = STEP_KEYS.indexOf(currentStep);
-      const totalSteps = STEP_KEYS.length;
-      const progress = Math.min(99, Math.floor(((currentIndex + 1) / totalSteps) * 100));
+      // Calculate progress against the visible guided flow (skip legacy confirm_scope).
+      const flow = wizardStepsForInspection(Boolean(inspection?.property_id));
+      const flowIndex = flow.indexOf(currentStep);
+      const progress = Math.min(
+        99,
+        Math.floor((((flowIndex >= 0 ? flowIndex : 0) + 1) / flow.length) * 100)
+      );
 
       // Determine next step
-      const next = nextStep || STEP_KEYS[currentIndex + 1] || 'complete';
+      const next =
+        nextStep ||
+        flow[flowIndex >= 0 ? flowIndex + 1 : 0] ||
+        'complete';
 
       // Update step
       await inspectionsService.updateInspectionStep(stepData.id, {
@@ -142,6 +248,18 @@ export default function InspectionWizardScreen() {
     }
   };
 
+  const persistCurrentStepPayload = async (payload: any) => {
+    if (!stepData) return;
+    try {
+      const updated = await inspectionsService.updateInspectionStep(stepData.id, {
+        payload_json: payload,
+      });
+      setStepData(updated);
+    } catch (error) {
+      console.error('Error persisting step payload:', error);
+    }
+  };
+
   const handleComplete = async () => {
     if (!id || !stepData || !inspection || !property) return;
 
@@ -160,12 +278,37 @@ export default function InspectionWizardScreen() {
         last_step: 'complete',
       });
 
-      // Generate report
+      // Generate report from merged wizard payloads (each step only stores its fields).
       try {
-        const allSteps = await inspectionsService.getInspectionSteps(id);
-        const reviewStep = allSteps.find((s) => s.step_key === 'review');
-        const payload = reviewStep?.payload_json || {};
+        const stepsForSnapshot = await inspectionsService.getInspectionSteps(id);
+        const merged = mergeInspectionWizardPayload(stepsForSnapshot);
+        const baseCounts = countInspectionSnapshot(merged);
 
+        let photoNotesCount = 0;
+        try {
+          const allPhotos = await photosService.getPhotos(property.id);
+          const ids = new Set<string>([
+            ...merged.photo_ids,
+            ...Object.values(merged.spaces_data).flatMap((s) => s.photo_ids || []),
+          ]);
+          photoNotesCount = allPhotos.filter((p) => {
+            if (!ids.has(p.id)) return false;
+            if (Array.isArray(p.notes_entries) && p.notes_entries.length > 0) {
+              return true;
+            }
+            return Boolean(p.notes && String(p.notes).trim());
+          }).length;
+        } catch (photoErr) {
+          console.error('Error counting photo notes for report:', photoErr);
+        }
+
+        const counts = {
+          ...baseCounts,
+          notes_count: baseCounts.notes_count + photoNotesCount,
+          photo_notes_count: photoNotesCount,
+        };
+
+        const typeCopy = getInspectionTypeCopy(inspection.inspection_type);
         const snapshotJson = {
           property: {
             id: property.id,
@@ -176,13 +319,18 @@ export default function InspectionWizardScreen() {
           inspection: {
             id: inspection.id,
             type: inspection.inspection_type,
+            type_label: getInspectionTypeLabel(inspection.inspection_type),
+            purpose: typeCopy.introBody,
             started_at: inspection.started_at,
             completed_at: new Date().toISOString(),
           },
-          spaces_covered: payload.space_ids_in_scope || [],
-          photo_ids: payload.photo_ids || [],
-          spaces_data: payload.spaces_data || {},
-          user_summary_notes: payload.user_summary_notes || '',
+          spaces_covered: merged.space_ids_in_scope,
+          photo_ids: merged.photo_ids,
+          spaces_data: merged.spaces_data,
+          user_summary_notes: merged.user_summary_notes || '',
+          counts,
+          disclaimer:
+            'This is a user-created documentation record and does not constitute legal advice, a professional property inspection, or a guarantee of legal admissibility.',
         };
 
         await reportsService.createReport({
@@ -197,7 +345,9 @@ export default function InspectionWizardScreen() {
         // Don't fail the inspection completion if report generation fails
       }
 
-      showToast('Inspection completed!', 'success');
+      const doneLabel =
+        inspection.inspection_type === 'tour' ? 'Tour documented' : 'Inspection completed';
+      showToast(`${doneLabel}!`, 'success');
       
       // Navigate to insights
       router.replace('/(tabs)/insights');
@@ -239,7 +389,12 @@ export default function InspectionWizardScreen() {
         return (
           <IntroStep
             inspection={inspection}
-            onContinue={() => saveStepAndContinue(payload, 'choose_property')}
+            onContinue={() =>
+              saveStepAndContinue(
+                payload,
+                inspection.property_id ? 'capture_overview' : 'choose_property'
+              )
+            }
             saving={saving}
           />
         );
@@ -251,25 +406,33 @@ export default function InspectionWizardScreen() {
             properties={properties}
             payload={payload}
             onContinue={(selectedPropertyId) => {
-              saveStepAndContinue({ ...payload, selected_property_id: selectedPropertyId }, 'confirm_scope');
+              saveStepAndContinue(
+                { ...payload, selected_property_id: selectedPropertyId },
+                'capture_overview'
+              );
             }}
             saving={saving}
           />
         );
       case 'confirm_scope':
+        // Legacy multi-select step — skip into the room-by-room walk flow.
         return (
-          <ConfirmScopeStep
-            spaces={spaces}
-            payload={payload}
-            onContinue={(spaceIds) => {
-              saveStepAndContinue({ ...payload, space_ids_in_scope: spaceIds }, 'capture_overview');
-            }}
-            saving={saving}
+          <LegacySkipScopeStep
+            onSkip={() =>
+              saveStepAndContinue(
+                {
+                  ...payload,
+                  space_ids_in_scope: payload.space_ids_in_scope || [],
+                },
+                'capture_overview'
+              )
+            }
           />
         );
       case 'capture_overview':
         return (
           <CaptureOverviewStep
+            inspection={inspection}
             property={property}
             payload={payload}
             onContinue={(photoIds) => {
@@ -280,29 +443,52 @@ export default function InspectionWizardScreen() {
         );
       case 'capture_spaces':
         return (
-          <CaptureSpacesStep
+          <GuidedWalkSpacesStep
+            inspection={inspection}
             property={property}
-            spaces={spaces.filter((s) => payload.space_ids_in_scope?.includes(s.id))}
+            allSpaces={spaces}
             payload={payload}
-            onContinue={(spaceData) => {
-              saveStepAndContinue({ ...payload, spaces_data: spaceData }, 'review');
+            onSpaceAdded={async (space) => {
+              appendSpace(space);
+            }}
+            onPersist={persistCurrentStepPayload}
+            onFinish={(spaceData, spaceIdsInScope) => {
+              saveStepAndContinue(
+                {
+                  ...payload,
+                  spaces_data: spaceData,
+                  space_ids_in_scope: spaceIdsInScope,
+                },
+                'review'
+              );
             }}
             saving={saving}
           />
         );
-      case 'review':
+      case 'review': {
+        const mergedPayload = mergeInspectionWizardPayload(allSteps);
+        // Prefer live step payload for summary notes being edited on this screen.
+        const reviewPayload = {
+          ...mergedPayload,
+          user_summary_notes:
+            (payload as { user_summary_notes?: string }).user_summary_notes ??
+            mergedPayload.user_summary_notes,
+        };
         return (
           <ReviewStep
             inspection={inspection}
             property={property}
-            spaces={spaces.filter((s) => payload.space_ids_in_scope?.includes(s.id))}
-            payload={payload}
+            spaces={spaces.filter((s) =>
+              reviewPayload.space_ids_in_scope.includes(s.id)
+            )}
+            payload={reviewPayload}
             onContinue={(notes) => {
               saveStepAndContinue({ ...payload, user_summary_notes: notes }, 'complete');
             }}
             saving={saving}
           />
         );
+      }
       case 'complete':
         return (
           <CompleteStep
@@ -316,24 +502,95 @@ export default function InspectionWizardScreen() {
     }
   };
 
-  const currentStepIndex = STEP_KEYS.indexOf(currentStep);
+  const flowSteps = wizardStepsForInspection(Boolean(inspection.property_id));
+  const currentStepIndex = Math.max(0, flowSteps.indexOf(currentStep));
   const progress = inspection.inspections_progress;
+  const isDraft = inspection.inspection_status === 'in_progress';
+  const walkCompleted =
+    currentStep === 'capture_spaces'
+      ? ((stepData.payload_json as { walk?: { completed_space_ids?: string[] } } | undefined)
+          ?.walk?.completed_space_ids?.length ?? 0)
+      : 0;
+
+  const cancelDelete = () => {
+    if (deleting) return;
+    setDeleteStage(null);
+  };
+
+  const advanceOrConfirmDelete = async () => {
+    if (deleting || !id) return;
+    if (deleteStage === 'confirm') {
+      setDeleteStage('confirmAgain');
+      return;
+    }
+    if (deleteStage !== 'confirmAgain') return;
+
+    setDeleting(true);
+    try {
+      await inspectionsService.deleteInspection(id);
+      showToast('Draft inspection deleted', 'success');
+      setDeleteStage(null);
+      router.replace('/(tabs)/inspections');
+    } catch (error) {
+      console.error('Error deleting inspection:', error);
+      showToast('Failed to delete inspection', 'error');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
-      <PRGHeader title={STEP_TITLES[currentStep]} showBack />
+      <PRGHeader
+        title={STEP_TITLES[currentStep]}
+        showBack
+        onBack={handleWizardBack}
+        rightAction={
+          isDraft
+            ? {
+                label: 'Delete',
+                onPress: () => setDeleteStage('confirm'),
+              }
+            : undefined
+        }
+      />
       <View style={styles.progressContainer}>
         <View style={styles.progressBar}>
           <View style={[styles.progressFill, { width: `${progress}%` }]} />
         </View>
         <Text style={styles.progressText}>
-          Step {currentStepIndex + 1} of {STEP_KEYS.length}
+          {currentStep === 'capture_spaces'
+            ? walkCompleted > 0
+              ? `${walkCompleted} space${walkCompleted === 1 ? '' : 's'} documented · Step ${currentStepIndex + 1} of ${flowSteps.length}`
+              : `Room by room · Step ${currentStepIndex + 1} of ${flowSteps.length}`
+            : `Step ${currentStepIndex + 1} of ${flowSteps.length}`}
         </Text>
       </View>
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
         {renderStepContent()}
       </ScrollView>
       {saving && <PRGLoadingOverlay />}
+
+      <PRGConfirmDialog
+        visible={deleteStage === 'confirm'}
+        title="Delete this draft?"
+        message="This unfinished inspection will be removed. Photos already uploaded to the property will stay."
+        cancelLabel="Keep draft"
+        confirmLabel="Delete"
+        destructive
+        onCancel={cancelDelete}
+        onConfirm={advanceOrConfirmDelete}
+      />
+      <PRGConfirmDialog
+        visible={deleteStage === 'confirmAgain'}
+        title="Are you sure?"
+        message="This cannot be undone. Delete this draft inspection permanently?"
+        cancelLabel="Cancel"
+        confirmLabel={deleting ? 'Deleting…' : 'Delete permanently'}
+        destructive
+        onCancel={cancelDelete}
+        onConfirm={advanceOrConfirmDelete}
+      />
     </View>
   );
 }
@@ -348,15 +605,13 @@ function IntroStep({
   onContinue: () => void;
   saving: boolean;
 }) {
+  const copy = getInspectionTypeCopy(inspection.inspection_type);
   return (
     <View>
-      <Text style={styles.stepTitle}>Welcome to Your Inspection</Text>
+      <Text style={styles.stepTitle}>{copy.introTitle}</Text>
+      <Text style={styles.stepDescription}>{copy.introBody}</Text>
       <Text style={styles.stepDescription}>
-        This inspection will help you document the condition of your property.
-        You'll be guided through each step to capture photos and information.
-      </Text>
-      <Text style={styles.stepDescription}>
-        Type: {inspection.inspection_type}
+        Type: {getInspectionTypeLabel(inspection.inspection_type)}
       </Text>
       <PRGButton
         title="Get Started"
@@ -444,71 +699,41 @@ function ChoosePropertyStep({
   );
 }
 
-function ConfirmScopeStep({
-  spaces,
-  payload,
-  onContinue,
-  saving,
-}: {
-  spaces: Space[];
-  payload: any;
-  onContinue: (spaceIds: string[]) => void;
-  saving: boolean;
-}) {
-  const [selectedSpaces, setSelectedSpaces] = useState<string[]>(
-    payload.space_ids_in_scope || spaces.map((s) => s.id)
-  );
-
-  const toggleSpace = (spaceId: string) => {
-    if (selectedSpaces.includes(spaceId)) {
-      setSelectedSpaces(selectedSpaces.filter((id) => id !== spaceId));
-    } else {
-      setSelectedSpaces([...selectedSpaces, spaceId]);
-    }
-  };
+function LegacySkipScopeStep({ onSkip }: { onSkip: () => void }) {
+  useEffect(() => {
+    onSkip();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <View>
-      <Text style={styles.stepTitle}>Confirm Scope</Text>
+      <Text style={styles.stepTitle}>Preparing your walkthrough…</Text>
       <Text style={styles.stepDescription}>
-        Select which spaces to include in this inspection.
+        You’ll document one space at a time—no need to select every room up front.
       </Text>
-      {spaces.map((space) => (
-        <PRGButton
-          key={space.id}
-          title={space.display_name}
-          onPress={() => toggleSpace(space.id)}
-          variant={selectedSpaces.includes(space.id) ? 'primary' : 'secondary'}
-          style={styles.spaceButton}
-        />
-      ))}
-      <PRGButton
-        title="Continue"
-        onPress={() => onContinue(selectedSpaces)}
-        variant="primary"
-        loading={saving}
-        disabled={selectedSpaces.length === 0}
-        style={styles.continueButton}
-      />
     </View>
   );
 }
 
 function CaptureOverviewStep({
+  inspection,
   property,
   payload,
   onContinue,
   saving,
 }: {
+  inspection: Inspection;
   property: Property | null;
   payload: any;
   onContinue: (photoIds: string[]) => void;
   saving: boolean;
 }) {
   const { showToast } = useToast();
+  const copy = getInspectionTypeCopy(inspection.inspection_type);
   const [photoIds, setPhotoIds] = useState<string[]>(payload.photo_ids || []);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{ filename: string; status: 'uploading' | 'success' | 'error' }[]>([]);
+  const [pendingCapture, setPendingCapture] = useState<ImagePickerAsset | null>(null);
 
   const requestPermissions = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -568,9 +793,28 @@ function CaptureOverviewStep({
         ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
     });
 
-    if (!result.canceled && result.assets) {
-      await uploadPhotos(result.assets);
+    if (!result.canceled && result.assets?.[0]) {
+      setPendingCapture(result.assets[0]);
     }
+  };
+
+  const uploadSingleWithNotes = async (asset: ImagePickerAsset, notes: string) => {
+    if (!property) throw new Error('Property not loaded');
+
+    const processed = await processImageForUpload(asset);
+    const photo = await photosService.uploadAndCreatePhoto(
+      {
+        base64: processed.base64,
+        type: processed.mimeType,
+        name: processed.fileName,
+      },
+      {
+        property: property.id,
+        notes: notes || undefined,
+        captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
+      }
+    );
+    setPhotoIds((prev) => [...prev, photo.id]);
   };
 
   const uploadPhotos = async (assets: ImagePickerAsset[]) => {
@@ -585,42 +829,34 @@ function CaptureOverviewStep({
 
     try {
       const newPhotoIds: string[] = [];
+      let failCount = 0;
 
       for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
 
         try {
-          // Process image (handles HEIC conversion and base64 conversion)
           const processed = await processImageForUpload(asset);
 
-          const file = {
-            base64: processed.base64,
-            type: processed.mimeType,
-            name: processed.fileName,
-          };
-
-          // Upload file and get file ID
-          const fileId = await photosService.uploadFile(file);
-
-          // Create photo metadata
-          const photoData = {
-            property: property.id,
-            file: fileId,
-            captured_at: asset.exif?.DateTimeOriginal
-              ? new Date(asset.exif.DateTimeOriginal).toISOString()
-              : new Date().toISOString(),
-          };
-
-          const photo = await photosService.createPhoto(photoData);
+          const photo = await photosService.uploadAndCreatePhoto(
+            {
+              base64: processed.base64,
+              type: processed.mimeType,
+              name: processed.fileName,
+            },
+            {
+              property: property.id,
+              captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
+            }
+          );
           newPhotoIds.push(photo.id);
 
-          // Update status
           setUploadStatus(prev =>
             prev.map((status, idx) =>
               idx === i ? { ...status, status: 'success' } : status
             )
           );
         } catch (error) {
+          failCount += 1;
           console.error('Error uploading photo:', error);
           setUploadStatus(prev =>
             prev.map((status, idx) =>
@@ -630,9 +866,14 @@ function CaptureOverviewStep({
         }
       }
 
-      // Update photo IDs list
       setPhotoIds(prev => [...prev, ...newPhotoIds]);
-      showToast(`${newPhotoIds.length} photo(s) uploaded`, 'success');
+      if (failCount === 0) {
+        showToast(`${newPhotoIds.length} photo(s) uploaded`, 'success');
+      } else if (newPhotoIds.length === 0) {
+        showToast('Failed to upload photos', 'error');
+      } else {
+        showToast(`${newPhotoIds.length} uploaded, ${failCount} failed`, 'error');
+      }
     } catch (error) {
       console.error('Upload error:', error);
       showToast('Failed to upload photos', 'error');
@@ -647,13 +888,13 @@ function CaptureOverviewStep({
     <View>
       <Text style={styles.stepTitle}>Capture Overview Photos</Text>
       <Text style={styles.stepDescription}>
-        Take photos of the property entry, exterior, and key areas.
+        {copy.overviewBody}
       </Text>
 
       <PRGButton
         title="Pick from Library"
         onPress={handlePickImages}
-        disabled={uploading || saving}
+        disabled={uploading || saving || !!pendingCapture}
         variant="secondary"
         style={styles.uploadButton}
       />
@@ -661,7 +902,7 @@ function CaptureOverviewStep({
       <PRGButton
         title="Take Photo"
         onPress={handleTakePhoto}
-        disabled={uploading || saving}
+        disabled={uploading || saving || !!pendingCapture}
         variant="secondary"
         style={styles.uploadButton}
       />
@@ -698,195 +939,22 @@ function CaptureOverviewStep({
         onPress={() => onContinue(photoIds)}
         variant="primary"
         loading={saving}
-        disabled={uploading}
+        disabled={uploading || !!pendingCapture}
         style={styles.continueButton}
       />
-    </View>
-  );
-}
 
-function CaptureSpacesStep({
-  property,
-  spaces,
-  payload,
-  onContinue,
-  saving,
-}: {
-  property: Property | null;
-  spaces: Space[];
-  payload: any;
-  onContinue: (spaceData: any) => void;
-  saving: boolean;
-}) {
-  const { showToast } = useToast();
-  const [spacesData, setSpacesData] = useState<{ [spaceId: string]: { photo_ids: string[] } }>(
-    payload.spaces_data || {}
-  );
-  const [uploadingSpaceId, setUploadingSpaceId] = useState<string | null>(null);
-
-  const requestPermissions = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      if (Platform.OS === 'web') {
-        (window as any).alert('Permission to access camera roll is required!');
-      } else {
-        Alert.alert('Permission Required', 'Permission to access camera roll is required!');
-      }
-      return false;
-    }
-    return true;
-  };
-
-  const handlePickImages = async (space: Space, propertyId: string) => {
-    const hasPermission = await requestPermissions();
-    if (!hasPermission) return;
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.8,
-      preferredAssetRepresentationMode:
-        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-    });
-
-    if (!result.canceled && result.assets) {
-      await uploadPhotosForSpace(space, propertyId, result.assets);
-    }
-  };
-
-  const handleTakePhoto = async (space: Space, propertyId: string) => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      if (Platform.OS === 'web') {
-        (window as any).alert('Permission to access camera is required!');
-      } else {
-        Alert.alert('Permission Required', 'Permission to access camera is required!');
-      }
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      preferredAssetRepresentationMode:
-        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-    });
-
-    if (!result.canceled && result.assets) {
-      await uploadPhotosForSpace(space, propertyId, result.assets);
-    }
-  };
-
-  const uploadPhotosForSpace = async (space: Space, propertyId: string, assets: ImagePickerAsset[]) => {
-    setUploadingSpaceId(space.id);
-
-    try {
-      const newPhotoIds: string[] = [];
-
-      for (const asset of assets) {
-        try {
-          // Process image (handles HEIC conversion and base64 conversion)
-          const processed = await processImageForUpload(asset);
-
-          const file = {
-            base64: processed.base64,
-            type: processed.mimeType,
-            name: processed.fileName,
-          };
-
-          // Upload file and get file ID
-          const fileId = await photosService.uploadFile(file);
-
-          // Create photo metadata with space assignment
-          const photoData = {
-            property: propertyId,
-            file: fileId,
-            space: space.id,
-            assignment_status: 'confirmed',
-            captured_at: asset.exif?.DateTimeOriginal
-              ? new Date(asset.exif.DateTimeOriginal).toISOString()
-              : new Date().toISOString(),
-          };
-
-          const photo = await photosService.createPhoto(photoData);
-          newPhotoIds.push(photo.id);
-        } catch (error) {
-          console.error('Error uploading photo:', error);
-        }
-      }
-
-      // Update spaces data
-      setSpacesData(prev => ({
-        ...prev,
-        [space.id]: {
-          photo_ids: [...(prev[space.id]?.photo_ids || []), ...newPhotoIds],
-        },
-      }));
-
-      if (newPhotoIds.length > 0) {
-        showToast(`${newPhotoIds.length} photo(s) uploaded for ${space.display_name}`, 'success');
-      }
-    } catch (error) {
-      console.error('Upload error:', error);
-      showToast('Failed to upload photos', 'error');
-    } finally {
-      setUploadingSpaceId(null);
-    }
-  };
-
-  return (
-    <View>
-      <Text style={styles.stepTitle}>Capture Space Photos</Text>
-      <Text style={styles.stepDescription}>
-        Add photos for each space included in the inspection.
-      </Text>
-
-      {spaces.map((space) => {
-        const spacePhotoIds = spacesData[space.id]?.photo_ids || [];
-        const isUploading = uploadingSpaceId === space.id;
-
-        return (
-          <View key={space.id} style={styles.spacePhotoItem}>
-            <Text style={styles.spaceName}>{space.display_name}</Text>
-            <Text style={styles.spacePhotoCount}>
-              {spacePhotoIds.length} photo{spacePhotoIds.length !== 1 ? 's' : ''}
-            </Text>
-
-            {property ? (
-              <>
-                <PRGButton
-                  title="Pick from Library"
-                  onPress={() => handlePickImages(space, property.id)}
-                  disabled={isUploading || saving}
-                  variant="secondary"
-                  style={styles.spaceUploadButton}
-                />
-                <PRGButton
-                  title="Take Photo"
-                  onPress={() => handleTakePhoto(space, property.id)}
-                  disabled={isUploading || saving}
-                  variant="secondary"
-                  style={styles.spaceUploadButton}
-                />
-              </>
-            ) : (
-              <Text style={styles.stepNote}>Property not loaded</Text>
-            )}
-
-            {isUploading && (
-              <Text style={styles.uploadingText}>Uploading...</Text>
-            )}
-          </View>
-        );
-      })}
-
-      <PRGButton
-        title="Continue"
-        onPress={() => onContinue(spacesData)}
-        variant="primary"
-        loading={saving}
-        disabled={uploadingSpaceId !== null}
-        style={styles.continueButton}
+      <PhotoCaptureNotesSheet
+        visible={!!pendingCapture}
+        previewUri={pendingCapture?.uri}
+        onCancel={() => setPendingCapture(null)}
+        onFinished={() => {
+          setPendingCapture(null);
+          showToast('Photo submitted', 'success');
+        }}
+        onSubmit={async ({ notes }) => {
+          if (!pendingCapture) return;
+          await uploadSingleWithNotes(pendingCapture, notes);
+        }}
       />
     </View>
   );
@@ -903,44 +971,65 @@ function ReviewStep({
   inspection: Inspection;
   property: Property | null;
   spaces: Space[];
-  payload: any;
+  payload: {
+    photo_ids?: string[];
+    spaces_data?: Record<string, { photo_ids?: string[]; notes?: string }>;
+    space_ids_in_scope?: string[];
+    user_summary_notes?: string;
+  };
   onContinue: (notes: string) => void;
   saving: boolean;
 }) {
+  const { colors: themeColors } = useTheme();
   const [notes, setNotes] = useState(payload.user_summary_notes || '');
+  const copy = getInspectionTypeCopy(inspection.inspection_type);
 
-  const overviewPhotoCount = payload.photo_ids?.length || 0;
+  const counts = countInspectionSnapshot({
+    photo_ids: payload.photo_ids || [],
+    spaces_data: payload.spaces_data || {},
+    space_ids_in_scope: payload.space_ids_in_scope || [],
+    user_summary_notes: notes,
+  });
   const spacesData = payload.spaces_data || {};
-  const totalSpacePhotos = Object.values(spacesData).reduce(
-    (sum: number, spaceData: any) => sum + (spaceData.photo_ids?.length || 0),
-    0
-  );
 
   return (
     <View>
       <Text style={styles.stepTitle}>Review</Text>
       <Text style={styles.stepDescription}>
-        Review your inspection details and add any final notes.
+        {copy.reviewBody}
+      </Text>
+      <Text style={styles.reviewItem}>
+        Type: {getInspectionTypeLabel(inspection.inspection_type)}
       </Text>
       <Text style={styles.reviewItem}>
         Property: {property?.nickname || property?.address_free_text}
       </Text>
       <Text style={styles.reviewItem}>
-        Spaces: {spaces.length}
+        Spaces: {counts.spaces_count}
       </Text>
       <Text style={styles.reviewItem}>
-        Overview Photos: {overviewPhotoCount}
+        Overview Photos: {counts.overview_photos_count}
       </Text>
       <Text style={styles.reviewItem}>
-        Space Photos: {totalSpacePhotos}
+        Space Photos: {counts.space_photos_count}
+      </Text>
+      <Text style={styles.reviewItem}>
+        Total Photos: {counts.total_photos_count}
+      </Text>
+      <Text style={styles.reviewItem}>
+        Notes: {counts.notes_count}
+        {notes.trim() ? ' (includes summary)' : ''}
       </Text>
       {spaces.length > 0 && (
         <View style={styles.spaceReviewList}>
           {spaces.map((space) => {
             const spacePhotoCount = spacesData[space.id]?.photo_ids?.length || 0;
+            const spaceNotes = spacesData[space.id]?.notes?.trim();
             return (
               <Text key={space.id} style={styles.spaceReviewItem}>
-                {space.display_name}: {spacePhotoCount} photo{spacePhotoCount !== 1 ? 's' : ''}
+                {space.display_name}: {spacePhotoCount} photo
+                {spacePhotoCount !== 1 ? 's' : ''}
+                {spaceNotes ? ' · notes' : ''}
               </Text>
             );
           })}
@@ -955,6 +1044,10 @@ function ReviewStep({
         placeholder="Add any additional notes about this inspection..."
         style={styles.notesInput}
       />
+      <Text style={[styles.notesHint, { color: themeColors?.textTertiary || '#888' }]}>
+        You can add more detailed notes on each photo and space — those are
+        timestamped with who wrote them and can be edited later.
+      </Text>
       <PRGButton
         title="Complete Inspection"
         onPress={() => onContinue(notes)}
@@ -975,12 +1068,11 @@ function CompleteStep({
   onComplete: () => void;
   saving: boolean;
 }) {
+  const copy = getInspectionTypeCopy(inspection.inspection_type);
   return (
     <View>
-      <Text style={styles.stepTitle}>Inspection Complete!</Text>
-      <Text style={styles.stepDescription}>
-        Your inspection has been completed successfully.
-      </Text>
+      <Text style={styles.stepTitle}>{copy.completeTitle}</Text>
+      <Text style={styles.stepDescription}>{copy.completeBody}</Text>
       <PRGButton
         title="View Report"
         onPress={onComplete}
@@ -1061,6 +1153,46 @@ const styles = StyleSheet.create({
   spaceButton: {
     marginBottom: spacing.sm,
   },
+  addSpaceCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  addSpaceTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.semibold,
+    marginBottom: spacing.xs,
+  },
+  typeLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    marginBottom: spacing.sm,
+  },
+  spaceTypeOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  spaceTypeChip: {
+    marginBottom: 0,
+  },
+  addSpaceActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  addSpaceActionButton: {
+    minWidth: 100,
+  },
+  inlineError: {
+    fontSize: typography.fontSize.sm,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
   propertyButton: {
     marginBottom: spacing.sm,
   },
@@ -1087,6 +1219,13 @@ const styles = StyleSheet.create({
   },
   notesInput: {
     marginTop: spacing.md,
+  },
+  notesHint: {
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.regular,
+    lineHeight: 20,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
   },
   uploadButton: {
     marginBottom: spacing.md,

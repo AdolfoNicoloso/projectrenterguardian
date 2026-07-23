@@ -6,6 +6,10 @@ import { appProfileService } from '../../src/services/appProfileService';
 import { spacing, typography } from '../../src/theme';
 import { useTheme } from '../../src/theme/useTheme';
 
+/**
+ * Gate after first property creation: start the real move-in inspection
+ * or defer and land on the properties list.
+ */
 export default function InspectionReadyGateScreen() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -14,11 +18,22 @@ export default function InspectionReadyGateScreen() {
   const [loading, setLoading] = useState(false);
   const [showNotReadyMessage, setShowNotReadyMessage] = useState(false);
 
+  const completeOnboarding = async () => {
+    await appProfileService.updateAppProfile({ onboarding_completed: true });
+  };
+
   const handleYes = async () => {
     setLoading(true);
     try {
-      await appProfileService.updateAppProfile({ onboarding_completed: true });
-      router.replace('/onboarding/guided-inspection-placeholder');
+      await completeOnboarding();
+      if (propertyId) {
+        // Start the real guided inspection (move-in) for this property
+        router.replace(
+          `/(tabs)/inspections/new?propertyId=${encodeURIComponent(propertyId)}&inspectionType=move_in`
+        );
+      } else {
+        router.replace('/(tabs)/inspections/new?inspectionType=move_in');
+      }
     } catch (err: any) {
       showToast('Failed to update profile', 'error');
       setLoading(false);
@@ -32,8 +47,12 @@ export default function InspectionReadyGateScreen() {
   const handleOkay = async () => {
     setLoading(true);
     try {
-      await appProfileService.updateAppProfile({ onboarding_completed: true });
-      router.replace('/(tabs)/properties');
+      await completeOnboarding();
+      if (propertyId) {
+        router.replace(`/(tabs)/properties/${propertyId}`);
+      } else {
+        router.replace('/(tabs)/properties');
+      }
     } catch (err: any) {
       showToast('Failed to update profile', 'error');
       setLoading(false);
@@ -51,15 +70,18 @@ export default function InspectionReadyGateScreen() {
         scrollEnabled={Platform.OS === 'web'}
       >
         <View style={styles.content}>
-          <Text style={[styles.message, { color: colors.text }]}>
-            Okay! Come back whenever you are ready, or take the pictures yourself and we can pick it up from there.
+          <Text style={[styles.title, { color: colors.text }]}>No rush</Text>
+          <Text style={[styles.message, { color: colors.textSecondary }]}>
+            Come back whenever you are ready. You can also add photos yourself from your property,
+            then start a guided inspection when it suits you.
           </Text>
 
           <PRGButton
-            title="Okay!"
+            title="Go to my property"
             onPress={handleOkay}
             loading={loading}
             style={styles.button}
+            accessibilityLabel="Go to my property"
           />
         </View>
       </ScrollableScreenContainer>
@@ -77,26 +99,29 @@ export default function InspectionReadyGateScreen() {
     >
       <View style={styles.content}>
         <Text style={[styles.title, { color: colors.text }]}>
-          Are you ready for your first inspection?
+          Ready for your first Move-In inspection?
         </Text>
 
         <Text style={[styles.body, { color: colors.textSecondary }]}>
-          All you need to do is take pictures of every area and answer some questions, and we will then generate a report for your records!
+          We will walk you room by room. Capture photos, add notes, and save a report you can keep
+          for your records.
         </Text>
 
         <PRGButton
-          title="No, I am not ready yet."
+          title="Yes, start Move-In inspection"
+          onPress={handleYes}
+          loading={loading}
+          style={styles.button}
+          accessibilityLabel="Start guided Move-In inspection"
+        />
+
+        <PRGButton
+          title="Not right now"
           onPress={handleNo}
           disabled={loading}
           variant="secondary"
           style={styles.button}
-        />
-
-        <PRGButton
-          title="Yes!"
-          onPress={handleYes}
-          loading={loading}
-          style={styles.button}
+          accessibilityLabel="Skip inspection for now"
         />
       </View>
     </ScrollableScreenContainer>
@@ -138,4 +163,3 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
 });
-

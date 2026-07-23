@@ -5,16 +5,22 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, typography } from '../theme';
 import { useTheme } from '../theme/useTheme';
 
+interface HeaderAction {
+  label?: string;
+  icon?: React.ReactNode;
+  onPress: () => void;
+  variant?: 'text' | 'icon';
+  accessibilityLabel?: string;
+}
+
 interface PRGHeaderProps {
   title: string;
   subtitle?: string;
   showBack?: boolean;
-  rightAction?: {
-    label?: string;
-    icon?: React.ReactNode;
-    onPress: () => void;
-    variant?: 'text' | 'icon';
-  };
+  /** Single right action (backward compatible). Ignored when rightActions is set. */
+  rightAction?: HeaderAction;
+  /** Multiple right actions (e.g. calendar + add). */
+  rightActions?: HeaderAction[];
   onBack?: () => void;
 }
 
@@ -23,6 +29,7 @@ export const PRGHeader: React.FC<PRGHeaderProps> = ({
   subtitle,
   showBack,
   rightAction,
+  rightActions,
   onBack,
 }) => {
   const router = useRouter();
@@ -54,6 +61,12 @@ export const PRGHeader: React.FC<PRGHeaderProps> = ({
   // If showBack is explicitly true, always show it
   // Otherwise, only show if navigation.canGoBack() is true
   const shouldShowBack = showBack === true ? true : (showBack === false ? false : canGoBack);
+  const actions =
+    rightActions && rightActions.length > 0
+      ? rightActions
+      : rightAction
+        ? [rightAction]
+        : [];
 
   return (
     <View style={[styles.container, { 
@@ -69,6 +82,8 @@ export const PRGHeader: React.FC<PRGHeaderProps> = ({
               onPress={handleBack}
               style={styles.backButton}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
             >
               <Text style={[styles.backText, { color: themeColors.primary }]}>
                 {Platform.OS === 'ios' ? '‹' : '←'}
@@ -91,28 +106,37 @@ export const PRGHeader: React.FC<PRGHeaderProps> = ({
           )}
         </View>
 
-        {/* Right: Action button */}
-        <View style={styles.right}>
-          {rightAction ? (
-            <TouchableOpacity
-              onPress={rightAction.onPress}
-              style={styles.actionButton}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              {rightAction.icon ? (
-                rightAction.icon
-              ) : (
-                <Text
-                  style={[
-                    styles.actionText,
-                    { color: themeColors.primary },
-                    rightAction.variant === 'icon' && styles.actionIcon,
-                  ]}
+        {/* Right: Action button(s) */}
+        <View style={[styles.right, actions.length > 1 && styles.rightWide]}>
+          {actions.length > 0 ? (
+            <View style={styles.rightActions}>
+              {actions.map((action, index) => (
+                <TouchableOpacity
+                  key={`${action.label || 'action'}-${index}`}
+                  onPress={action.onPress}
+                  style={styles.actionButton}
+                  hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    action.accessibilityLabel || action.label || 'Header action'
+                  }
                 >
-                  {rightAction.label}
-                </Text>
-              )}
-            </TouchableOpacity>
+                  {action.icon ? (
+                    action.icon
+                  ) : (
+                    <Text
+                      style={[
+                        styles.actionText,
+                        { color: themeColors.primary },
+                        action.variant === 'icon' && styles.actionIcon,
+                      ]}
+                    >
+                      {action.label}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
           ) : (
             <View style={styles.rightPlaceholder} />
           )}
@@ -148,8 +172,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   right: {
-    width: 80,
+    minWidth: 80,
     alignItems: 'flex-end',
+  },
+  rightWide: {
+    minWidth: 112,
+  },
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   rightPlaceholder: {
     width: 80,

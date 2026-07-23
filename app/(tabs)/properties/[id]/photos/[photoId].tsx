@@ -1,83 +1,96 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, Alert, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { PRGInput, PRGButton, PRGHeader, PRGCard, useToast } from '../../../../../src/components';
+import { PRGButton, PRGHeader, PRGCard, NotesListEditor, useToast } from '../../../../../src/components';
 import { photosService } from '../../../../../src/services/photosService';
 import { spacesService } from '../../../../../src/services/spacesService';
-import { propertiesService } from '../../../../../src/services/propertiesService';
+import { useAuthStore } from '../../../../../src/state/authStore';
+import { usePropertiesStore } from '../../../../../src/state/propertiesStore';
 import { spacing, typography } from '../../../../../src/theme';
 import { useTheme } from '../../../../../src/theme/useTheme';
-import type { Photo, Space } from '../../../../../src/types';
-import { getDirectusFileUrlWithAuth } from '../../../../../src/utils/fileUrl';
-import { formatDisplayDate } from '../../../../../src/utils/directusDate';
+import type { NoteEntry, Photo, Space } from '../../../../../src/types';
+import { getAuthenticatedCmsFileUrl, getCmsFilePlaceholderUrl } from '../../../../../src/utils/fileUrl';
+import { formatDisplayDate } from '../../../../../src/utils/cmsDateTime';
+import { coerceNotesEntries } from '../../../../../src/utils/notes';
 
 export default function PhotoDetailScreen() {
   const { id, photoId } = useLocalSearchParams<{ id: string; photoId: string }>();
   const router = useRouter();
   const { showToast } = useToast();
   const { colors } = useTheme();
+  const authUser = useAuthStore((s) => s.user);
   const [photo, setPhoto] = useState<Photo | null>(null);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [property, setProperty] = useState<any>(null);
-  const [notes, setNotes] = useState('');
+  const [notesEntries, setNotesEntries] = useState<NoteEntry[]>([]);
   const [selectedSpace, setSelectedSpace] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, [photoId, id]);
-
-  // Refetch photo data when screen comes into focus (e.g., after editing photo details)
-  useFocusEffect(
-    useCallback(() => {
-      if (photoId && id) {
-        loadData();
-      }
-    }, [photoId, id])
-  );
+  const currentUserName =
+    authUser?.displayName?.trim() ||
+    authUser?.email?.trim() ||
+    authUser?.phoneNumber?.trim() ||
+    'You';
 
   useEffect(() => {
     if (photo?.file) {
-      getDirectusFileUrlWithAuth(photo.file)
+      getAuthenticatedCmsFileUrl(photo.file)
         .then(setImageUri)
         .catch((error) => {
           console.error('Error getting file URL:', error);
-          // Fallback
-          const { getDirectusFileUrlSync } = require('../../../../../src/utils/fileUrl');
-          setImageUri(getDirectusFileUrlSync(photo.file));
+          setImageUri(getCmsFilePlaceholderUrl(photo.file));
         });
     } else {
       setImageUri(null);
     }
   }, [photo?.file]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async (opts?: { soft?: boolean }) => {
     if (!photoId || !id) return;
+    const soft = opts?.soft ?? false;
     try {
-      setLoading(true);
+      if (!soft) {
+        setLoading(true);
+      }
+      const cachedProperty = usePropertiesStore.getState().byId[id];
       const [photoData, spacesData, propertyData] = await Promise.all([
         photosService.getPhoto(photoId).catch(() => null),
         spacesService.getSpaces(id),
-        propertiesService.getProperty(id).catch(() => null),
+        cachedProperty
+          ? Promise.resolve(cachedProperty)
+          : usePropertiesStore.getState().fetchOne(id).catch(() => null),
       ]);
-      
+
       if (photoData) {
         setPhoto(photoData);
-        setNotes(photoData.notes || '');
-        // Use photo.space field directly
+        setNotesEntries(
+          coerceNotesEntries(photoData.notes_entries, photoData.notes)
+        );
         setSelectedSpace(photoData.space || '');
       }
-      
+
       setSpaces(spacesData);
-      setProperty(propertyData);
+      if (propertyData) {
+        setProperty(propertyData);
+      } else if (cachedProperty) {
+        setProperty(cachedProperty);
+      }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [photoId, id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (photoId && id) {
+        void loadData({ soft: true });
+      }
+    }, [photoId, id, loadData])
+  );
 
   const handleBack = () => {
     // Use native back navigation for proper iOS animation
@@ -93,8 +106,12 @@ export default function PhotoDetailScreen() {
     if (!photoId || !photo) return;
     try {
       // Update notes and space directly on the photo
-      const updates: { notes?: string; space?: string | null; assignment_status?: string } = {
-        notes: notes,
+      const updates: {
+        notes_entries?: NoteEntry[];
+        space?: string | null;
+        assignment_status?: string;
+      } = {
+        notes_entries: notesEntries,
       };
 
       // Update space assignment
@@ -159,7 +176,7 @@ export default function PhotoDetailScreen() {
     }
   };
 
-  if (loading) {
+  if (loading && !photo) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <PRGHeader title="Photo" showBack />
@@ -221,7 +238,7 @@ export default function PhotoDetailScreen() {
             if (errorMessage.includes('Failed to load resource') || errorMessage.includes('Network')) {
               console.warn('[PhotoDetail] Network error, attempting reload...');
               if (imageUri && imageUri.includes('getFile')) {
-                getDirectusFileUrlWithAuth(photo.file)
+                getAuthenticatedCmsFileUrl(photo.file)
                   .then((newUrl) => {
                     if (newUrl !== imageUri) {
                       setImageUri(newUrl);
@@ -273,14 +290,12 @@ export default function PhotoDetailScreen() {
         )}
 
         <PRGCard>
-        <PRGInput
-          label="Notes"
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="Add notes about this photo..."
-          multiline
-          numberOfLines={4}
-        />
+          <NotesListEditor
+            entries={notesEntries}
+            onChange={setNotesEntries}
+            currentUserName={currentUserName}
+            placeholder="e.g., scuff on baseboard, strong odor…"
+          />
         </PRGCard>
 
         <View style={styles.deleteContainer}>

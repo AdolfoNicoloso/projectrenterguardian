@@ -1,26 +1,64 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, RefreshControl } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { PRGHeader, PRGCard, PRGEmptyState, ScreenContainer } from '../../../src/components';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  RefreshControl,
+  ActivityIndicator,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import {
+  PRGHeader,
+  PRGCard,
+  PRGEmptyState,
+  PRGBadge,
+  ScreenContainer,
+} from '../../../src/components';
 import { reportsService } from '../../../src/services/reportsService';
 import { propertiesService } from '../../../src/services/propertiesService';
 import { spacing, typography } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
 import type { Report, Property } from '../../../src/types';
-import { formatDisplayDate } from '../../../src/utils/directusDate';
+import { formatDisplayDate } from '../../../src/utils/cmsDateTime';
+import { Routes } from '../../../src/navigation/routes';
+
+function statusBadgeVariant(
+  status: Report['status']
+): 'default' | 'success' | 'warning' | 'error' {
+  if (status === 'ready') return 'success';
+  if (status === 'generating' || status === 'draft') return 'warning';
+  if (status === 'failed') return 'error';
+  return 'default';
+}
+
+function statusLabel(status: Report['status']): string {
+  switch (status) {
+    case 'ready':
+      return 'Ready';
+    case 'generating':
+      return 'Generating';
+    case 'draft':
+      return 'Draft';
+    case 'failed':
+      return 'Failed';
+    default:
+      return status;
+  }
+}
 
 export default function ReportsListScreen() {
   const router = useRouter();
-  const { inspectionId } = useLocalSearchParams<{ inspectionId?: string }>();
   const { colors } = useTheme();
   const [reports, setReports] = useState<Report[]>([]);
   const [properties, setProperties] = useState<Record<string, Property>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const loadReports = useCallback(async () => {
     try {
-      // Get all properties first
+      setError(null);
       const props = await propertiesService.getMyProperties();
       const propsMap: Record<string, Property> = {};
       props.forEach((p) => {
@@ -28,18 +66,16 @@ export default function ReportsListScreen() {
       });
       setProperties(propsMap);
 
-      // Get reports for all properties
       const allReports: Report[] = [];
       for (const prop of props) {
         try {
           const propReports = await reportsService.getReports(prop.id);
           allReports.push(...propReports);
-        } catch (error) {
-          console.error(`Error loading reports for property ${prop.id}:`, error);
+        } catch (loadError) {
+          console.error(`Error loading reports for property ${prop.id}:`, loadError);
         }
       }
 
-      // Sort by date_created descending
       allReports.sort((a, b) => {
         const dateA = a.date_created ? new Date(a.date_created).getTime() : 0;
         const dateB = b.date_created ? new Date(b.date_created).getTime() : 0;
@@ -47,8 +83,9 @@ export default function ReportsListScreen() {
       });
 
       setReports(allReports);
-    } catch (error) {
-      console.error('Error loading reports:', error);
+    } catch (loadError) {
+      console.error('Error loading reports:', loadError);
+      setError('Could not load reports. Pull to refresh or try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -64,22 +101,20 @@ export default function ReportsListScreen() {
     loadReports();
   };
 
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return 'N/A';
-    return formatDisplayDate(dateString) || 'N/A';
-  };
-
   const getPropertyName = (propertyId: string) => {
     const prop = properties[propertyId];
-    return prop?.nickname || prop?.address_free_text || 'Unknown Property';
+    return prop?.nickname || prop?.address_free_text || 'Unknown property';
   };
 
   if (loading && reports.length === 0) {
     return (
       <ScreenContainer includeTopSafeArea={false} includeBottomSafeArea={false} horizontalPadding={0}>
-        <PRGHeader title="Insights" showBack={false} />
-        <View style={styles.loadingContainer}>
-          <Text>Loading...</Text>
+        <PRGHeader title="Reports" showBack={false} />
+        <View style={styles.loadingContainer} accessibilityLabel="Loading reports">
+          <ActivityIndicator color={colors.primary} size="large" />
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+            Loading reports…
+          </Text>
         </View>
       </ScreenContainer>
     );
@@ -87,11 +122,23 @@ export default function ReportsListScreen() {
 
   return (
     <ScreenContainer includeTopSafeArea={false} includeBottomSafeArea={false} horizontalPadding={0}>
-      <PRGHeader title="Insights" showBack={false} />
-      {reports.length === 0 ? (
+      <PRGHeader title="Reports" showBack={false} />
+      {error && reports.length === 0 ? (
+        <PRGEmptyState
+          title="Couldn't load reports"
+          message={error}
+          actionLabel="Try again"
+          onAction={() => {
+            setLoading(true);
+            loadReports();
+          }}
+        />
+      ) : reports.length === 0 ? (
         <PRGEmptyState
           title="No reports yet"
-          message="Complete an inspection to generate your first report"
+          message="Complete a guided inspection to save a report you can review later."
+          actionLabel="Start an inspection"
+          onAction={() => router.push(Routes.INSPECTIONS.NEW)}
         />
       ) : (
         <FlatList
@@ -99,25 +146,31 @@ export default function ReportsListScreen() {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <PRGCard
-              onPress={() => router.push(`/(tabs)/insights/${item.id}`)}
+              onPress={() => router.push(Routes.REPORTS.DETAIL(item.id))}
               style={styles.card}
+              accessibilityLabel={`Report for ${getPropertyName(item.property)}, status ${statusLabel(item.status)}`}
             >
-              <Text style={[styles.cardTitle, { color: colors.text }]}>
-                {getPropertyName(item.property)}
-              </Text>
-              <Text style={[styles.cardStatus, { color: colors.textSecondary }]}>
-                Status: {item.status}
-              </Text>
-              {item.date_created && (
-                <Text style={[styles.cardDate, { color: colors.textTertiary }]}>
-                  Generated: {formatDate(item.date_created)}
+              <View style={styles.cardHeader}>
+                <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
+                  {getPropertyName(item.property)}
                 </Text>
-              )}
+                <PRGBadge label={statusLabel(item.status)} variant={statusBadgeVariant(item.status)} />
+              </View>
+              {item.date_created ? (
+                <Text style={[styles.cardDate, { color: colors.textTertiary }]}>
+                  Saved {formatDisplayDate(item.date_created) || 'N/A'}
+                </Text>
+              ) : null}
+              <Text style={[styles.cardHint, { color: colors.primary }]}>View report</Text>
             </PRGCard>
           )}
           contentContainerStyle={styles.listContent}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+            />
           }
         />
       )}
@@ -130,24 +183,44 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: spacing.md,
+  },
+  loadingText: {
+    fontSize: typography.fontSize.base,
+    fontFamily: typography.fontFamily.regular,
   },
   listContent: {
     padding: spacing.md,
+    paddingBottom: spacing.xl,
+    maxWidth: 720,
+    width: '100%',
+    alignSelf: 'center',
   },
   card: {
     marginBottom: spacing.sm,
   },
-  cardTitle: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.semibold,
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
     marginBottom: spacing.xs,
   },
-  cardStatus: {
-    fontSize: typography.fontSize.sm,
-    marginBottom: spacing.xs,
+  cardTitle: {
+    flex: 1,
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.semibold,
+    fontFamily: typography.fontFamily.medium,
   },
   cardDate: {
     fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.regular,
+    marginBottom: spacing.xs,
+  },
+  cardHint: {
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.medium,
+    fontWeight: typography.fontWeight.medium,
+    marginTop: spacing.xs,
   },
 });
-

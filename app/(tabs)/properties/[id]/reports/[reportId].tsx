@@ -5,7 +5,7 @@ import { PRGButton, PRGCard, PRGBadge, PRGHeader, useToast } from '../../../../.
 import { reportsService } from '../../../../../src/services/reportsService';
 import { colors, spacing, typography } from '../../../../../src/theme';
 import type { Report } from '../../../../../src/types';
-import { formatDisplayDate } from '../../../../../src/utils/directusDate';
+import { formatDisplayDate } from '../../../../../src/utils/cmsDateTime';
 
 export default function ReportPreviewScreen() {
   const { reportId } = useLocalSearchParams<{ reportId: string }>();
@@ -87,17 +87,23 @@ export default function ReportPreviewScreen() {
         </PRGCard>
       )}
 
-        {report.pdf_file && (
-      <PRGButton
-            title="Export PDF"
-            onPress={() => {
-              // TODO: Open PDF file
-              showToast('PDF export not yet implemented', 'info');
-            }}
-            variant="primary"
-        style={styles.button}
-      />
-        )}
+      {report.pdf_file ? (
+        <PRGButton
+          title="Open PDF"
+          onPress={() => {
+            showToast('Unable to open PDF yet. Try again after the next update.', 'error');
+          }}
+          variant="primary"
+          style={styles.button}
+        />
+      ) : (
+        <PRGCard>
+          <Text style={styles.sectionTitle}>PDF export</Text>
+          <Text style={styles.jsonText}>
+            A downloadable PDF will appear here once report export is enabled. Your snapshot above is already saved.
+          </Text>
+        </PRGCard>
+      )}
     </ScrollView>
     </View>
   );

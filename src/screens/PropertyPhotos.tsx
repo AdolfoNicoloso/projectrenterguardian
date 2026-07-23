@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform, Alert, ActionSheetIOS } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -8,27 +8,34 @@ import * as FileSystem from 'expo-file-system';
 import { PRGPhotoGrid, PRGEmptyState, useToast, PRGLoadingOverlay, SVGIcon } from '../components';
 import { photosService } from '../services/photosService';
 import { processImageForUpload } from '../services/photoUploadService';
+import { capturedAtFromExif } from '../utils/cmsDateTime';
 import { colors, spacing, typography } from '../theme';
-import { useTheme } from '../theme/useTheme';
 import type { Photo } from '../types';
 import PlusFillIcon from '../../assets/nav_bar_symbols_final/plus.fill.svg';
 
 interface PropertyPhotosProps {
   propertyId: string;
+  canEdit?: boolean;
 }
 
-export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({ propertyId }) => {
+export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
+  propertyId,
+  canEdit = true,
+}) => {
   const router = useRouter();
   const { showToast } = useToast();
-  const { colors: themeColors } = useTheme();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [filter, setFilter] = useState<'all' | 'unassigned' | 'assigned'>('all');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
 
-  const loadPhotos = useCallback(async () => {
+  const loadPhotos = useCallback(async (opts?: { soft?: boolean }) => {
+    const soft = opts?.soft ?? false;
     try {
-      setLoading(true);
+      // Only blank the tab when we have nothing to show yet.
+      if (!soft) {
+        setLoading(true);
+      }
       const status = filter === 'all' ? undefined : filter;
       const data = await photosService.getPhotos(propertyId, { status });
       setPhotos(data);
@@ -40,14 +47,9 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({ propertyId }) =>
     }
   }, [propertyId, filter, showToast]);
 
-  useEffect(() => {
-    loadPhotos();
-  }, [loadPhotos]);
-
-  // Refetch photos when screen comes into focus (e.g., after uploading/editing photos)
   useFocusEffect(
     useCallback(() => {
-      loadPhotos();
+      void loadPhotos({ soft: true });
     }, [loadPhotos])
   );
 
@@ -61,6 +63,7 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({ propertyId }) =>
   };
 
   const handlePickImages = async () => {
+    if (!canEdit) return;
     const hasPermission = await requestPermissions();
     if (!hasPermission) return;
 
@@ -78,6 +81,7 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({ propertyId }) =>
   };
 
   const handleTakePhoto = async () => {
+    if (!canEdit) return;
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       alert('Permission to access camera is required!');
@@ -97,6 +101,7 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({ propertyId }) =>
   };
 
   const handlePickFiles = async () => {
+    if (!canEdit) return;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: '*/*',
@@ -133,86 +138,95 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({ propertyId }) =>
   };
 
   const uploadDocumentFiles = async (documents: DocumentPicker.DocumentPickerAsset[]) => {
-    if (!propertyId) return;
+    if (!propertyId || !canEdit) return;
 
     setUploading(true);
+    let successCount = 0;
+    let failCount = 0;
 
     try {
       for (let i = 0; i < documents.length; i++) {
         const document = documents[i];
-
-        const processed = await processDocumentFile(document);
-
-        const file = {
-          base64: processed.base64,
-          type: processed.mimeType,
-          name: processed.fileName,
-        };
-
-        const fileId = await photosService.uploadFile(file);
-
-        const photoData = {
-          property: propertyId,
-          file: fileId,
-          captured_at: document.modificationTime
-            ? new Date(document.modificationTime).toISOString()
-            : new Date().toISOString(),
-        };
-
-        await photosService.createPhoto(photoData);
+        try {
+          const processed = await processDocumentFile(document);
+          await photosService.uploadAndCreatePhoto(
+            {
+              base64: processed.base64,
+              type: processed.mimeType,
+              name: processed.fileName,
+            },
+            {
+              property: propertyId,
+              captured_at: document.modificationTime
+                ? new Date(document.modificationTime).toISOString()
+                : new Date().toISOString(),
+            }
+          );
+          successCount += 1;
+        } catch (error) {
+          failCount += 1;
+          console.error('Upload error:', error);
+        }
       }
 
-      showToast(`${documents.length} file(s) uploaded`, 'success');
-      await loadPhotos();
-    } catch (error) {
-      console.error('Upload error:', error);
-      showToast('Failed to upload files', 'error');
+      if (failCount === 0) {
+        showToast(`${successCount} file(s) uploaded`, 'success');
+      } else if (successCount === 0) {
+        showToast('Failed to upload files', 'error');
+      } else {
+        showToast(`${successCount} uploaded, ${failCount} failed`, 'error');
+      }
+      await loadPhotos({ soft: true });
     } finally {
       setUploading(false);
     }
   };
 
   const uploadPhotos = async (assets: ImagePickerAsset[]) => {
-    if (!propertyId) return;
+    if (!propertyId || !canEdit) return;
 
     setUploading(true);
+    let successCount = 0;
+    let failCount = 0;
 
     try {
       for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
-
-        const processed = await processImageForUpload(asset);
-
-        const file = {
-          base64: processed.base64,
-          type: processed.mimeType,
-          name: processed.fileName,
-        };
-
-        const fileId = await photosService.uploadFile(file);
-
-        const photoData = {
-          property: propertyId,
-          file: fileId,
-          captured_at: asset.exif?.DateTimeOriginal
-            ? new Date(asset.exif.DateTimeOriginal).toISOString()
-            : new Date().toISOString(),
-        };
-
-        await photosService.createPhoto(photoData);
+        try {
+          const processed = await processImageForUpload(asset);
+          await photosService.uploadAndCreatePhoto(
+            {
+              base64: processed.base64,
+              type: processed.mimeType,
+              name: processed.fileName,
+            },
+            {
+              property: propertyId,
+              captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
+            }
+          );
+          successCount += 1;
+        } catch (error) {
+          failCount += 1;
+          console.error('Upload error:', error);
+        }
       }
 
-      showToast(`${assets.length} photo(s) uploaded`, 'success');
-      await loadPhotos();
-    } catch (error) {
-      console.error('Upload error:', error);
-      showToast('Failed to upload photos', 'error');
+      if (failCount === 0) {
+        showToast(`${successCount} photo(s) uploaded`, 'success');
+      } else if (successCount === 0) {
+        showToast('Failed to upload photos', 'error');
+      } else {
+        showToast(`${successCount} uploaded, ${failCount} failed`, 'error');
+      }
+      await loadPhotos({ soft: true });
     } finally {
       setUploading(false);
     }
   };
 
   const handleUploadPhotos = () => {
+    if (!canEdit) return;
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
@@ -295,19 +309,21 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({ propertyId }) =>
             </Text>
           </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={styles.plusButton}
-          onPress={handleUploadPhotos}
-        >
-          <SVGIcon source={PlusFillIcon} size={24} />
-        </TouchableOpacity>
+        {canEdit ? (
+          <TouchableOpacity
+            style={styles.plusButton}
+            onPress={handleUploadPhotos}
+          >
+            <SVGIcon source={PlusFillIcon} size={24} />
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         {photos.length === 0 ? (
           <PRGEmptyState
             title="No Photos"
-            message="Upload photos to get started"
+            message={canEdit ? 'Upload photos to get started' : 'No photos yet'}
           />
         ) : (
           <PRGPhotoGrid
@@ -371,5 +387,3 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 });
-
-

@@ -1,6 +1,17 @@
 import { create } from 'zustand';
-import { storage, backendClient } from '../services';
+import { storage, backendClient, BackendError } from '../services';
 import { firebaseAuth } from '../services/firebase';
+import { usePropertiesStore } from './propertiesStore';
+
+function logBootstrapProfileFailure(err: unknown, context: string) {
+  if (err instanceof BackendError) {
+    console.error(
+      `[auth] bootstrapProfile failed (${context}): ${err.statusCode} — ${err.message}`
+    );
+  } else {
+    console.error(`[auth] bootstrapProfile failed (${context}):`, err);
+  }
+}
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -10,6 +21,8 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
+  /** After firebaseAuth.confirmPhoneCode succeeded and user is in storage. */
+  completePhoneSignIn: () => Promise<void>;
   logout: (delayStateUpdate?: boolean) => Promise<void>;
   checkAuth: () => Promise<void>;
   setAuthState: (isAuthenticated: boolean, user: any | null) => void;
@@ -48,18 +61,18 @@ export const useAuthStore = create<AuthState>((set) => ({
         const user = {
           id: currentUser.uid,
           email: currentUser.email || '',
+          phoneNumber: currentUser.phoneNumber || '',
           displayName: currentUser.displayName || '',
           photoURL: currentUser.photoURL || null,
         };
         await storage.setToken(token);
         await storage.setUser(user);
         set({ isAuthenticated: true, user, isLoading: false });
-        // Bootstrap app_profile in Directus (creates if doesn't exist)
+        // Ensure Firestore app_profile exists (Cloud Function bootstrapProfile)
         try {
           await backendClient.bootstrapProfile();
         } catch (profileError) {
-          // Log but don't fail auth check if profile bootstrap fails
-          console.warn('Failed to bootstrap profile:', profileError);
+          logBootstrapProfileFailure(profileError, 'checkAuth');
         }
       } else {
         // No Firebase user found - clear any stale storage data
@@ -76,15 +89,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const { user } = await firebaseAuth.signInWithEmail(email, password);
       set({ isAuthenticated: true, user });
-      // Bootstrap app_profile in Directus (creates if doesn't exist)
+      // Ensure Firestore app_profile exists (Cloud Function bootstrapProfile)
       try {
         await backendClient.bootstrapProfile();
       } catch (profileError) {
-        // Log but don't fail login if profile bootstrap fails
-        console.warn('Failed to bootstrap profile:', profileError);
+        logBootstrapProfileFailure(profileError, 'login');
       }
-    } catch (error: any) {
-      throw new Error(error.message || 'Login failed');
+    } catch (error) {
+      // Preserve Firebase error.code for UI mapping
+      throw error;
     }
   },
 
@@ -92,15 +105,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const { user } = await firebaseAuth.signUpWithEmail(email, password);
       set({ isAuthenticated: true, user });
-      // Bootstrap app_profile in Directus (creates if doesn't exist)
+      // Ensure Firestore app_profile exists (Cloud Function bootstrapProfile)
       try {
         await backendClient.bootstrapProfile();
       } catch (profileError) {
         // Log but don't fail registration if profile bootstrap fails
         console.warn('Failed to bootstrap profile:', profileError);
       }
-    } catch (error: any) {
-      throw new Error(error.message || 'Registration failed');
+    } catch (error) {
+      throw error;
     }
   },
 
@@ -109,15 +122,37 @@ export const useAuthStore = create<AuthState>((set) => ({
       const { signInWithGoogle } = await import('../services/googleAuth');
       const { user } = await signInWithGoogle();
       set({ isAuthenticated: true, user });
-      // Bootstrap app_profile in Directus (creates if doesn't exist)
+      // Ensure Firestore app_profile exists (Cloud Function bootstrapProfile)
       try {
         await backendClient.bootstrapProfile();
       } catch (profileError) {
-        // Log but don't fail login if profile bootstrap fails
-        console.warn('Failed to bootstrap profile:', profileError);
+        logBootstrapProfileFailure(profileError, 'google');
       }
-    } catch (error: any) {
-      throw new Error(error.message || 'Google sign-in failed');
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  completePhoneSignIn: async () => {
+    const currentUser = firebaseAuth.getCurrentUser();
+    if (!currentUser) {
+      throw new Error('Phone sign-in did not complete.');
+    }
+    const token = await currentUser.getIdToken();
+    const user = {
+      id: currentUser.uid,
+      email: currentUser.email || '',
+      phoneNumber: currentUser.phoneNumber || '',
+      displayName: currentUser.displayName || '',
+      photoURL: currentUser.photoURL || null,
+    };
+    await storage.setToken(token);
+    await storage.setUser(user);
+    set({ isAuthenticated: true, user });
+    try {
+      await backendClient.bootstrapProfile();
+    } catch (profileError) {
+      logBootstrapProfileFailure(profileError, 'phone');
     }
   },
 
@@ -133,6 +168,12 @@ export const useAuthStore = create<AuthState>((set) => ({
         await storage.clear();
       } catch (error) {
         console.error('Error clearing storage:', error);
+      }
+
+      try {
+        usePropertiesStore.getState().clear();
+      } catch (error) {
+        console.error('Error clearing properties cache:', error);
       }
       
       // Update state - delay if requested (for showing logout message)

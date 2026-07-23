@@ -1,5 +1,4 @@
 export * from './storage';
-export * from './directus';
 export * from './firebase';
 export * from './googleAuth';
 export * from './backendClient';
@@ -12,3 +11,4 @@ export * from './inspectionsService';
 export * from './reportsService';
 export * from './userPreferencesService';
 export * from './appProfileService';
+export * from './propertyMembersService';

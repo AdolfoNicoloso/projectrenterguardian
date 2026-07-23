@@ -1,14 +1,16 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { PRGTabBar, PRGHeader, useToast } from '../../../src/components';
-import { propertiesService } from '../../../src/services/propertiesService';
+import { useProperty } from '../../../src/hooks/usePropertiesQuery';
+import { usePropertiesStore } from '../../../src/state/propertiesStore';
 import { colors, spacing, typography } from '../../../src/theme';
-import type { Property } from '../../../src/types';
+import { useTheme } from '../../../src/theme/useTheme';
 import { PropertyOverview } from '../../../src/screens/PropertyOverview';
 import { PropertySpaces } from '../../../src/screens/PropertySpaces';
 import { PropertyPhotos } from '../../../src/screens/PropertyPhotos';
 import { PropertyReport } from '../../../src/screens/PropertyReport';
+import { canEditProperty } from '../../../src/utils/propertyAccess';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -18,67 +20,66 @@ const TABS = [
 ];
 
 export default function PropertyDashboardScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, editTour } = useLocalSearchParams<{ id: string; editTour?: string }>();
   const router = useRouter();
   const { showToast } = useToast();
-  const [property, setProperty] = useState<Property | null>(null);
+  const { colors: themeColors } = useTheme();
+  const { data: property, isInitialLoading, error } = useProperty(
+    typeof id === 'string' ? id : undefined
+  );
+  const updateProperty = usePropertiesStore((s) => s.updateProperty);
+  const deleteProperty = usePropertiesStore((s) => s.deleteProperty);
   const [activeTab, setActiveTab] = useState('overview');
-  const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
-
-  const loadProperty = useCallback(async () => {
-    if (!id) return;
-    try {
-      setLoading(true);
-      const data = await propertiesService.getProperty(id);
-      setProperty(data);
-    } catch (error) {
-      console.error('Error loading property:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
-
-  useEffect(() => {
-    loadProperty();
-  }, [loadProperty]);
-
-  // Refetch property data when screen comes into focus
-  // This ensures we see the latest data after navigating back from edit screens
-  useFocusEffect(
-    useCallback(() => {
-      loadProperty();
-    }, [loadProperty])
+  // Capture once so clearing the query param does not close the editor.
+  const [startEditingTour] = useState(
+    () => editTour === '1' || editTour === 'true' || editTour === 'yes'
   );
 
-  if (loading || !property) {
-    return (
-      <View style={styles.container}>
-        <Text>Loading...</Text>
-      </View>
-    );
-  }
+  useEffect(() => {
+    if (!startEditingTour) return;
+    router.setParams({ editTour: undefined });
+  }, [startEditingTour, router]);
+
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.push('/(tabs)/properties');
+    }
+  };
 
   const handleUpdateNickname = async (newNickname: string) => {
     if (!id || !property) return;
     try {
-      const updated = await propertiesService.updateProperty(id, { nickname: newNickname });
-      setProperty(updated);
+      await updateProperty(id, { nickname: newNickname });
       showToast('Nickname updated', 'success');
-    } catch (error) {
-      console.error('Error updating nickname:', error);
+    } catch (err) {
+      console.error('Error updating nickname:', err);
       showToast('Failed to update nickname', 'error');
+    }
+  };
+
+  const handleUpdateListingUrl = async (listingUrl: string) => {
+    if (!id || !property) return;
+    try {
+      await updateProperty(id, {
+        listing_url: listingUrl.trim() || null,
+      });
+      showToast('Property link updated', 'success');
+    } catch (err) {
+      console.error('Error updating listing URL:', err);
+      showToast('Failed to update property link', 'error');
     }
   };
 
   const handleUpdateStatus = async (newStatus: string) => {
     if (!id || !property) return;
     try {
-      const updated = await propertiesService.updateProperty(id, { status: newStatus });
-      setProperty(updated);
+      await updateProperty(id, { status: newStatus });
       showToast(`Status updated to ${newStatus}`, 'success');
-    } catch (error) {
-      console.error('Error updating status:', error);
+    } catch (err) {
+      console.error('Error updating status:', err);
       showToast('Failed to update status', 'error');
     }
   };
@@ -86,11 +87,10 @@ export default function PropertyDashboardScreen() {
   const handleUpdateLeaseStart = async (leaseStart: string) => {
     if (!id || !property) return;
     try {
-      const updated = await propertiesService.updateProperty(id, { lease_start_date: leaseStart });
-      setProperty(updated);
+      await updateProperty(id, { lease_start_date: leaseStart });
       showToast('Lease start date updated', 'success');
-    } catch (error) {
-      console.error('Error updating lease start:', error);
+    } catch (err) {
+      console.error('Error updating lease start:', err);
       showToast('Failed to update lease start date', 'error');
     }
   };
@@ -98,107 +98,125 @@ export default function PropertyDashboardScreen() {
   const handleUpdateLeaseTerm = async (leaseTerm: number | null) => {
     if (!id || !property) return;
     try {
-      const updated = await propertiesService.updateProperty(id, { lease_term: leaseTerm || undefined });
-      setProperty(updated);
+      await updateProperty(id, {
+        lease_term: leaseTerm,
+      } as { lease_term?: number | null });
       showToast('Lease term updated', 'success');
-    } catch (error) {
-      console.error('Error updating lease term:', error);
+    } catch (err) {
+      console.error('Error updating lease term:', err);
       showToast('Failed to update lease term', 'error');
     }
   };
 
-  const handleDelete = async () => {
-    console.log('[PropertyDashboardScreen] handleDelete called, id:', id);
-    if (!id || deleting) {
-      console.warn('[PropertyDashboardScreen] No id available for deletion or already deleting');
-      return;
+  const handleUpdateTourScheduledAt = async (tourScheduledAt: string | null) => {
+    if (!id || !property) return;
+    try {
+      await updateProperty(id, { tour_scheduled_at: tourScheduledAt });
+      showToast(
+        tourScheduledAt ? 'Tour time updated' : 'Tour time cleared',
+        'success'
+      );
+    } catch (err) {
+      console.error('Error updating tour time:', err);
+      showToast('Failed to update tour time', 'error');
     }
+  };
+
+  const handleDelete = async () => {
+    if (!id || deleting) return;
     try {
       setDeleting(true);
-      console.log('[PropertyDashboardScreen] Calling deleteProperty with id:', id);
-      await propertiesService.deleteProperty(id);
-      console.log('[PropertyDashboardScreen] Property deleted successfully');
+      await deleteProperty(id);
       showToast('Property deleted successfully', 'success');
-      // Navigate back to properties list - this will clean up any child routes
       router.replace('/(tabs)/properties');
-    } catch (error) {
-      console.error('[PropertyDashboardScreen] Error deleting property:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete property';
+    } catch (err) {
+      console.error('[PropertyDashboardScreen] Error deleting property:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete property';
       showToast(errorMessage, 'error');
       setDeleting(false);
     }
   };
 
-  const handleBack = () => {
-    // Use native back navigation for proper iOS backward animation
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      // Fallback: navigate to properties list if we can't go back
-      router.push('/(tabs)/properties');
-    }
-  };
-
-  const renderTabContent = () => {
-    if (!property) return null;
-    switch (activeTab) {
-      case 'overview':
-        return (
-          <PropertyOverview 
-            property={property} 
-            onUpdateNickname={handleUpdateNickname}
-            onUpdateStatus={handleUpdateStatus}
-            onUpdateLeaseStart={handleUpdateLeaseStart}
-            onUpdateLeaseTerm={handleUpdateLeaseTerm}
-            onDelete={handleDelete}
-            deleting={deleting}
-          />
-        );
-      case 'spaces':
-        return <PropertySpaces propertyId={property.id} />;
-      case 'photos':
-        return <PropertyPhotos propertyId={property.id} />;
-      case 'report':
-        return <PropertyReport propertyId={property.id} />;
-      default:
-        return (
-          <PropertyOverview 
-            property={property} 
-            onUpdateNickname={handleUpdateNickname}
-            onUpdateStatus={handleUpdateStatus}
-            onUpdateLeaseStart={handleUpdateLeaseStart}
-            onUpdateLeaseTerm={handleUpdateLeaseTerm}
-            onDelete={handleDelete}
-            deleting={deleting}
-          />
-        );
-    }
-  };
-
-  if (loading) {
+  if (isInitialLoading) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: themeColors.background }]}>
         <PRGHeader title="Property" showBack onBack={handleBack} />
         <View style={styles.loadingContainer}>
-          <Text>Loading...</Text>
-        </View>
-      </View>
-    );
-    }
-
-  if (!property) {
-    return (
-      <View style={styles.container}>
-        <PRGHeader title="Property Not Found" showBack onBack={handleBack} />
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Property not found</Text>
+          <ActivityIndicator color={themeColors.primary} />
+          <Text style={[styles.loadingText, { color: themeColors.textSecondary }]}>
+            Loading…
+          </Text>
         </View>
       </View>
     );
   }
 
+  if (!property) {
+    return (
+      <View style={[styles.container, { backgroundColor: themeColors.background }]}>
+        <PRGHeader title="Property Not Found" showBack onBack={handleBack} />
+        <View style={styles.errorContainer}>
+          <Text style={[styles.errorText, { color: themeColors.textSecondary }]}>
+            {error || 'Property not found'}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  const myRole = property.my_role || 'owner';
+  const canEdit = canEditProperty(property);
+  const canDelete = myRole === 'owner';
+
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'overview':
+        return (
+          <PropertyOverview
+            property={property}
+            onUpdateNickname={canEdit ? handleUpdateNickname : undefined}
+            onUpdateListingUrl={canEdit ? handleUpdateListingUrl : undefined}
+            onUpdateStatus={canEdit ? handleUpdateStatus : undefined}
+            onUpdateLeaseStart={canEdit ? handleUpdateLeaseStart : undefined}
+            onUpdateLeaseTerm={canEdit ? handleUpdateLeaseTerm : undefined}
+            onUpdateTourScheduledAt={canEdit ? handleUpdateTourScheduledAt : undefined}
+            onDelete={canDelete ? handleDelete : undefined}
+            deleting={deleting}
+            initialEditingTour={startEditingTour && canEdit}
+            onManagePeople={() =>
+              router.push(`/(tabs)/properties/${property.id}/people`)
+            }
+          />
+        );
+      case 'spaces':
+        return <PropertySpaces propertyId={property.id} canEdit={canEdit} />;
+      case 'photos':
+        return <PropertyPhotos propertyId={property.id} canEdit={canEdit} />;
+      case 'report':
+        return <PropertyReport propertyId={property.id} />;
+      default:
+        return (
+          <PropertyOverview
+            property={property}
+            onUpdateNickname={canEdit ? handleUpdateNickname : undefined}
+            onUpdateListingUrl={canEdit ? handleUpdateListingUrl : undefined}
+            onUpdateStatus={canEdit ? handleUpdateStatus : undefined}
+            onUpdateLeaseStart={canEdit ? handleUpdateLeaseStart : undefined}
+            onUpdateLeaseTerm={canEdit ? handleUpdateLeaseTerm : undefined}
+            onUpdateTourScheduledAt={canEdit ? handleUpdateTourScheduledAt : undefined}
+            onDelete={canDelete ? handleDelete : undefined}
+            deleting={deleting}
+            initialEditingTour={startEditingTour && canEdit}
+            onManagePeople={() =>
+              router.push(`/(tabs)/properties/${property.id}/people`)
+            }
+          />
+        );
+    }
+  };
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: themeColors.background }]}>
       <PRGHeader
         title={property.nickname || property.address_free_text}
         subtitle={property.nickname ? property.address_free_text : undefined}
@@ -220,6 +238,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: spacing.sm,
+  },
+  loadingText: {
+    fontSize: typography.fontSize.base,
+    fontFamily: typography.fontFamily.regular,
   },
   errorContainer: {
     flex: 1,
@@ -229,12 +252,8 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: typography.fontSize.base,
-    color: colors.gray[600],
   },
   content: {
     flex: 1,
   },
 });
-
-
-

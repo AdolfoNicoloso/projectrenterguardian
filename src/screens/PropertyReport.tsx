@@ -1,11 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { PRGButton, PRGCard, PRGBadge, PRGEmptyState, useToast } from '../components';
 import { reportsService } from '../services/reportsService';
 import { colors, spacing, typography } from '../theme';
 import type { Report } from '../types';
-import { formatDisplayDate } from '../utils/directusDate';
+import { formatDisplayDate } from '../utils/cmsDateTime';
 
 interface PropertyReportProps {
   propertyId: string;
@@ -17,18 +17,7 @@ export const PropertyReport: React.FC<PropertyReportProps> = ({ propertyId }) =>
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadData();
-  }, [propertyId]);
-
-  // Refetch reports when screen comes into focus (e.g., after generating new reports)
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [propertyId])
-  );
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const reportsData = await reportsService.getReports(propertyId);
       setReports(reportsData);
@@ -38,7 +27,13 @@ export const PropertyReport: React.FC<PropertyReportProps> = ({ propertyId }) =>
     } finally {
       setLoading(false);
     }
-  };
+  }, [propertyId, showToast]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadData();
+    }, [loadData])
+  );
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';

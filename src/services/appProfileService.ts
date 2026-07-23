@@ -35,6 +35,16 @@ class AppProfileService {
     );
     return response.data;
   }
+  /**
+   * Permanently delete the current account and all associated data.
+   * @return {Promise<void>}
+   */
+  async deleteAccount(): Promise<void> {
+    await backendClient.call<{ ok: boolean }>('deleteAccount', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
 }
 
 export const appProfileService = new AppProfileService();

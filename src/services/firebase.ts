@@ -10,7 +10,12 @@ import {
   GoogleAuthProvider,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithPhoneNumber,
+  PhoneAuthProvider,
   User,
+  ApplicationVerifier,
+  ConfirmationResult,
 } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
@@ -85,6 +90,7 @@ export const googleProvider = new GoogleAuthProvider();
 const firebaseUserToUser = (firebaseUser: User) => ({
   id: firebaseUser.uid,
   email: firebaseUser.email || '',
+  phoneNumber: firebaseUser.phoneNumber || '',
   displayName: firebaseUser.displayName || '',
   photoURL: firebaseUser.photoURL || null,
 });
@@ -122,8 +128,50 @@ export const firebaseAuth = {
     
     await storage.setToken(token);
     await storage.setUser(user);
-    console.log("FIREBASE_ID_TOKEN:", token);
     return { user, token };
+  },
+
+  /**
+   * Start phone sign-in. Pass a Recaptcha / FirebaseRecaptcha verifier.
+   */
+  async startPhoneSignIn(
+    phoneE164: string,
+    appVerifier: ApplicationVerifier
+  ): Promise<ConfirmationResult> {
+    return signInWithPhoneNumber(auth, phoneE164, appVerifier);
+  },
+
+  /**
+   * Confirm SMS code from startPhoneSignIn.
+   */
+  async confirmPhoneCode(confirmation: ConfirmationResult, code: string) {
+    const userCredential = await confirmation.confirm(code);
+    const token = await userCredential.user.getIdToken();
+    const user = firebaseUserToUser(userCredential.user);
+    await storage.setToken(token);
+    await storage.setUser(user);
+    return { user, token };
+  },
+
+  /**
+   * Confirm with verificationId + code (alternate path).
+   */
+  async confirmPhoneCredential(verificationId: string, code: string) {
+    const credential = PhoneAuthProvider.credential(verificationId, code);
+    const userCredential = await signInWithCredential(auth, credential);
+    const token = await userCredential.user.getIdToken();
+    const user = firebaseUserToUser(userCredential.user);
+    await storage.setToken(token);
+    await storage.setUser(user);
+    return { user, token };
+  },
+
+  /**
+   * Sends a password-reset email via Firebase Auth.
+   * Does not reveal whether the email exists (Firebase may still return user-not-found).
+   */
+  async sendPasswordReset(email: string) {
+    await sendPasswordResetEmail(auth, email.trim());
   },
 
   // Sign Out
@@ -147,4 +195,6 @@ export const firebaseAuth = {
     return onAuthStateChanged(auth, callback);
   },
 };
+
+export { app as firebaseApp };
 

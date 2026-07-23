@@ -8,6 +8,7 @@ interface PRGCardProps {
   onPress?: () => void;
   style?: ViewStyle;
   variant?: 'default' | 'secondary';
+  accessibilityLabel?: string;
 }
 
 export const PRGCard: React.FC<PRGCardProps> = ({ 
@@ -15,6 +16,7 @@ export const PRGCard: React.FC<PRGCardProps> = ({
   onPress, 
   style,
   variant = 'default',
+  accessibilityLabel,
 }) => {
   const { colors } = useTheme();
   const CardComponent = onPress ? TouchableOpacity : View;
@@ -43,6 +45,8 @@ export const PRGCard: React.FC<PRGCardProps> = ({
       style={cardStyle}
       onPress={onPress}
       activeOpacity={onPress ? 0.7 : 1}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={accessibilityLabel}
     >
       {children}
     </CardComponent>

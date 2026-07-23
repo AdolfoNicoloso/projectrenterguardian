@@ -1,17 +1,16 @@
 import { router } from 'expo-router';
 import { appProfileService } from '../services/appProfileService';
-import { userPreferencesService } from '../services/userPreferencesService';
 
 /**
  * Routing resolver for post-authentication navigation.
  * Determines the correct screen to navigate to based on onboarding status.
- * 
+ *
  * Routing logic:
- * 1. Fetch app_profile and user_preferences
+ * 1. Fetch app_profile
  * 2. If onboarding_completed !== true:
  *    - If name is missing/empty → OnboardingNameScreen
- *    - Else if preferred_language missing → OnboardingLanguageScreen
- *    - Else → CreateFirstPropertyScreen
+ *    - Else → Intent → property create (touring or renting)
+ *    (Preferred language step is temporarily disabled.)
  * 3. Else → HomeScreen (Properties)
  */
 export async function resolvePostAuthRoute(): Promise<void> {
@@ -25,34 +24,21 @@ export async function resolvePostAuthRoute(): Promise<void> {
       // Continue anyway - updateAppProfile will create it if needed
     }
 
-    // Fetch app_profile and user_preferences in parallel
-    const [appProfile, userPreferences] = await Promise.all([
-      appProfileService.getAppProfile().catch(() => null),
-      userPreferencesService.getUserPreferences().catch(() => null),
-    ]);
+    const appProfile = await appProfileService.getAppProfile().catch(() => null);
 
     // Check onboarding completion status
     const onboardingCompleted = appProfile?.onboarding_completed === true;
 
     if (!onboardingCompleted) {
-      // Onboarding flow
       const name = appProfile?.name;
-      const preferredLanguage = userPreferences?.preferred_language;
 
       if (!name || name.trim() === '') {
-        // Missing name → go to name screen
         router.replace('/onboarding/name');
         return;
       }
 
-      if (!preferredLanguage) {
-        // Missing language → go to language screen
-        router.replace('/onboarding/language');
-        return;
-      }
-
-      // Name and language set → go to property info screen
-      router.replace('/onboarding/property-info');
+      // Name set → choose touring vs already renting (language skipped for now)
+      router.replace('/onboarding/intent');
       return;
     }
 
@@ -64,5 +50,3 @@ export async function resolvePostAuthRoute(): Promise<void> {
     router.replace('/(tabs)/properties');
   }
 }
-
-

@@ -1,47 +1,162 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { PRGHeader, PRGButton, PRGInput, PRGLoadingOverlay, useToast } from '../../../src/components';
+import { PRGHeader, PRGButton, PRGLoadingOverlay, useToast } from '../../../src/components';
 import { propertiesService } from '../../../src/services/propertiesService';
 import { inspectionsService } from '../../../src/services/inspectionsService';
-import { colors, spacing, typography } from '../../../src/theme';
+import {
+  INSPECTION_TYPES,
+  getInspectionTypeShortDescription,
+  isValidInspectionType,
+} from '../../../src/constants/inspectionTypes';
+import {
+  canPropertyStartInspectionType,
+  isActivePropertyStatus,
+  isTouringPropertyStatus,
+} from '../../../src/constants/propertyStatuses';
+import { spacing, typography } from '../../../src/theme';
+import { useTheme } from '../../../src/theme/useTheme';
 import type { Property } from '../../../src/types';
-
-const INSPECTION_TYPES = [
-  'move_in',
-  'move_out',
-  'periodic',
-  'damage_assessment',
-];
 
 export default function NewInspectionStartScreen() {
   const router = useRouter();
-  const { propertyId } = useLocalSearchParams<{ propertyId?: string }>();
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
-    propertyId || null
+  const { propertyId, inspectionType, spaceWalk } = useLocalSearchParams<{
+    propertyId?: string;
+    inspectionType?: string;
+    spaceWalk?: string;
+  }>();
+  const resolvedSpaceWalk =
+    spaceWalk === 'existing' || spaceWalk === 'pick' ? spaceWalk : undefined;
+  const { colors } = useTheme();
+  const [allProperties, setAllProperties] = useState<Property[]>([]);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
+  const [selectedInspectionType, setSelectedInspectionType] = useState<string>(
+    typeof inspectionType === 'string' && isValidInspectionType(inspectionType)
+      ? inspectionType
+      : 'tour'
   );
-  const [selectedInspectionType, setSelectedInspectionType] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [autoStarting, setAutoStarting] = useState(
+    Boolean(propertyId && inspectionType && isValidInspectionType(inspectionType))
+  );
+  const [inactiveDeepLink, setInactiveDeepLink] = useState(false);
   const { showToast } = useToast();
+
+  const eligibleProperties = useMemo(
+    () =>
+      allProperties.filter((p) =>
+        canPropertyStartInspectionType(p.status, selectedInspectionType)
+      ),
+    [allProperties, selectedInspectionType]
+  );
 
   useEffect(() => {
     loadProperties();
   }, []);
 
+  useEffect(() => {
+    if (!autoStarting || loading || creating) return;
+    if (!propertyId || !inspectionType || !isValidInspectionType(inspectionType)) {
+      setAutoStarting(false);
+      return;
+    }
+    const match = allProperties.find((p) => p.id === propertyId);
+    if (!match) {
+      setAutoStarting(false);
+      return;
+    }
+    if (!canPropertyStartInspectionType(match.status, inspectionType)) {
+      setInactiveDeepLink(true);
+      setAutoStarting(false);
+      setSelectedPropertyId(null);
+      showToast(
+        inspectionType === 'tour'
+          ? 'Set this property to Touring or Active to start a Tour'
+          : 'Only active properties can start that inspection',
+        'error'
+      );
+      return;
+    }
+    void startInspection(propertyId, inspectionType, resolvedSpaceWalk);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot auto start
+  }, [autoStarting, loading, allProperties, propertyId, inspectionType]);
+
+  useEffect(() => {
+    if (
+      selectedPropertyId &&
+      !eligibleProperties.some((p) => p.id === selectedPropertyId)
+    ) {
+      setSelectedPropertyId(null);
+    }
+  }, [eligibleProperties, selectedPropertyId]);
+
   const loadProperties = async () => {
     try {
       const data = await propertiesService.getMyProperties();
-      setProperties(data);
-      if (propertyId && data.find((p) => p.id === propertyId)) {
-        setSelectedPropertyId(propertyId);
+      const eligiblePool = data.filter(
+        (p) => isActivePropertyStatus(p.status) || isTouringPropertyStatus(p.status)
+      );
+      setAllProperties(eligiblePool);
+
+      if (propertyId) {
+        const match = data.find((p) => p.id === propertyId);
+        const type =
+          typeof inspectionType === 'string' && isValidInspectionType(inspectionType)
+            ? inspectionType
+            : selectedInspectionType;
+        if (match && canPropertyStartInspectionType(match.status, type)) {
+          setSelectedPropertyId(propertyId);
+        } else if (match) {
+          setInactiveDeepLink(true);
+        }
       }
     } catch (error) {
       console.error('Error loading properties:', error);
       showToast('Failed to load properties', 'error');
+      setAutoStarting(false);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const startInspection = async (
+    propId: string,
+    type: string,
+    walkMode?: 'existing' | 'pick'
+  ) => {
+    setCreating(true);
+    try {
+      const inspection = await inspectionsService.createInspection({
+        property_id: propId,
+        inspection_type: type,
+      });
+
+      if (walkMode) {
+        try {
+          const step = await inspectionsService.getInspectionStep(
+            inspection.id,
+            'capture_spaces'
+          );
+          await inspectionsService.updateInspectionStep(step.id, {
+            payload_json: {
+              ...(typeof step.payload_json === 'object' && step.payload_json
+                ? step.payload_json
+                : {}),
+              space_walk: walkMode,
+            },
+          });
+        } catch (patchErr) {
+          console.warn('Could not set space_walk on capture_spaces:', patchErr);
+        }
+      }
+
+      router.replace(`/(tabs)/inspections/${inspection.id}`);
+    } catch (error: any) {
+      console.error('Error creating inspection:', error);
+      showToast(error?.message || 'Failed to create inspection', 'error');
+      setCreating(false);
+      setAutoStarting(false);
     }
   };
 
@@ -54,66 +169,91 @@ export default function NewInspectionStartScreen() {
       showToast('Please select an inspection type', 'error');
       return;
     }
-
-    setCreating(true);
-    try {
-      const inspection = await inspectionsService.createInspection({
-        property_id: selectedPropertyId,
-        inspection_type: selectedInspectionType,
-      });
-      // Navigate to the inspection wizard
-      router.replace(`/(tabs)/inspections/${inspection.id}`);
-    } catch (error) {
-      console.error('Error creating inspection:', error);
-      showToast('Failed to create inspection', 'error');
-      setCreating(false);
-    }
+    await startInspection(selectedPropertyId, selectedInspectionType, resolvedSpaceWalk);
   };
 
-  if (loading) {
+  if (loading || autoStarting) {
     return (
-      <View style={styles.container}>
-        <PRGHeader title="New Inspection" showBack />
-        <View style={styles.loadingContainer}>
-          <Text>Loading...</Text>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <PRGHeader title="New Inspection" showBack={!autoStarting} />
+        <View style={styles.loadingContainer} accessibilityLabel="Preparing inspection">
+          <ActivityIndicator color={colors.primary} size="large" />
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+            {autoStarting ? 'Starting your guided inspection…' : 'Loading…'}
+          </Text>
         </View>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <PRGHeader title="New Inspection" showBack />
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.sectionTitle}>Select Property</Text>
-        {properties.map((property) => (
-          <PRGButton
-            key={property.id}
-            title={property.nickname || property.address_free_text}
-            onPress={() => setSelectedPropertyId(property.id)}
-            variant={selectedPropertyId === property.id ? 'primary' : 'secondary'}
-            style={styles.propertyButton}
-          />
-        ))}
+        <Text style={[styles.intro, { color: colors.textSecondary }]}>
+          Choose a property and type. Active properties can start any inspection. Touring properties
+          can start a Tour. Draft and archived residences are not eligible.
+        </Text>
 
-        <Text style={styles.sectionTitle}>Inspection Type</Text>
-        {INSPECTION_TYPES.map((type) => (
-          <PRGButton
-            key={type}
-            title={type.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
-            onPress={() => setSelectedInspectionType(type)}
-            variant={selectedInspectionType === type ? 'primary' : 'secondary'}
-            style={styles.typeButton}
-          />
-        ))}
+        {inactiveDeepLink ? (
+          <Text style={[styles.warning, { color: colors.warning }]}>
+            That property is not eligible for this inspection type. Set it to Active (or Touring for
+            a Tour) on the property overview, then try again.
+          </Text>
+        ) : null}
+
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Property</Text>
+        {eligibleProperties.length === 0 ? (
+          <Text style={[styles.empty, { color: colors.textSecondary }]}>
+            {selectedInspectionType === 'tour'
+              ? 'No Touring or Active properties yet. Set a property to Touring or Active to start a Tour.'
+              : 'No active properties yet. Set a property’s status to Active to start this inspection.'}
+          </Text>
+        ) : (
+          eligibleProperties.map((property) => (
+            <PRGButton
+              key={property.id}
+              title={property.nickname || property.address_free_text}
+              onPress={() => setSelectedPropertyId(property.id)}
+              variant={selectedPropertyId === property.id ? 'primary' : 'secondary'}
+              style={styles.propertyButton}
+              accessibilityLabel={`Select property ${property.nickname || property.address_free_text}`}
+            />
+          ))
+        )}
+
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Inspection type</Text>
+        {INSPECTION_TYPES.map((type) => {
+          const selected = selectedInspectionType === type.value;
+          return (
+            <View key={type.value} style={styles.typeBlock}>
+              <PRGButton
+                title={type.label}
+                onPress={() => setSelectedInspectionType(type.value)}
+                variant={selected ? 'primary' : 'secondary'}
+                style={styles.typeButton}
+                accessibilityLabel={`Select ${type.label} inspection`}
+                accessibilityHint={type.shortDescription}
+              />
+              {selected ? (
+                <Text style={[styles.typeHint, { color: colors.textSecondary }]}>
+                  {getInspectionTypeShortDescription(type.value)}
+                </Text>
+              ) : null}
+            </View>
+          );
+        })}
 
         <PRGButton
-          title="Start Inspection"
+          title={selectedInspectionType === 'tour' ? 'Start Tour' : 'Start Inspection'}
           onPress={handleStart}
           variant="primary"
-          disabled={!selectedPropertyId || !selectedInspectionType}
+          disabled={!selectedPropertyId || !selectedInspectionType || eligibleProperties.length === 0}
           loading={creating}
           style={styles.startButton}
+          accessibilityLabel={
+            selectedInspectionType === 'tour' ? 'Start tour' : 'Start inspection'
+          }
         />
       </ScrollView>
       {creating && <PRGLoadingOverlay />}
@@ -124,34 +264,71 @@ export default function NewInspectionStartScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.gray[50],
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  loadingText: {
+    fontSize: typography.fontSize.base,
+    fontFamily: typography.fontFamily.regular,
+    textAlign: 'center',
   },
   content: {
     flex: 1,
   },
   scrollContent: {
     padding: spacing.md,
+    maxWidth: 600,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  intro: {
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.regular,
+    lineHeight: 20,
+    marginBottom: spacing.md,
+  },
+  warning: {
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.medium,
+    lineHeight: 20,
+    marginBottom: spacing.md,
   },
   sectionTitle: {
     fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.semibold,
-    color: colors.dark,
+    fontFamily: typography.fontFamily.medium,
     marginTop: spacing.lg,
     marginBottom: spacing.md,
+  },
+  empty: {
+    fontSize: typography.fontSize.base,
+    marginBottom: spacing.md,
+    lineHeight: 22,
   },
   propertyButton: {
     marginBottom: spacing.sm,
   },
-  typeButton: {
+  typeBlock: {
     marginBottom: spacing.sm,
+  },
+  typeButton: {
+    marginBottom: 0,
+  },
+  typeHint: {
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.regular,
+    lineHeight: 18,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
   startButton: {
     marginTop: spacing.xl,
+    marginBottom: spacing.xl,
   },
 });
-

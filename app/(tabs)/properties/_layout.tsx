@@ -10,7 +10,11 @@ export default function PropertiesLayout() {
     >
       <Stack.Screen name="index" />
       <Stack.Screen name="create" />
+      <Stack.Screen name="tours-calendar" />
+      <Stack.Screen name="status-intent" />
       <Stack.Screen name="property-info" />
+      <Stack.Screen name="property-link" />
+      <Stack.Screen name="tour-schedule" />
       <Stack.Screen name="lease-info" />
       <Stack.Screen name="nickname" />
       <Stack.Screen name="[id]" />

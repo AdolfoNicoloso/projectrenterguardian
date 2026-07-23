@@ -3,19 +3,9 @@ import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } fr
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { PRGButton, PRGInput, PRGHeader, useToast } from '../../../../../src/components';
 import { spacesService } from '../../../../../src/services/spacesService';
+import { SPACE_TYPES } from '../../../../../src/constants/spaceTypes';
 import { colors, spacing, typography } from '../../../../../src/theme';
 import type { Space } from '../../../../../src/types';
-
-const SPACE_TYPES: Array<{ value: Space['space_type']; label: string }> = [
-  { value: 'bedroom', label: 'Bedroom' },
-  { value: 'bathroom', label: 'Bathroom' },
-  { value: 'kitchen', label: 'Kitchen' },
-  { value: 'living_room', label: 'Living Room' },
-  { value: 'dining_room', label: 'Dining Room' },
-  { value: 'hallway', label: 'Hallway' },
-  { value: 'garage', label: 'Garage' },
-  { value: 'custom_space_type', label: 'Custom' },
-];
 
 export default function CreateSpaceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

@@ -29,7 +29,7 @@ export default function OnboardingNameScreen() {
 
     try {
       await appProfileService.updateAppProfile({ name: name.trim() });
-      router.push('/onboarding/language');
+      router.push('/onboarding/intent');
     } catch (err: any) {
       setError(err.message || 'Failed to save name');
       showToast('Failed to save name', 'error');
@@ -42,7 +42,7 @@ export default function OnboardingNameScreen() {
     setLogoutLoading(true);
     try {
       await logout(false);
-      router.replace('/(auth)/login');
+      router.replace('/welcome');
     } catch (err) {
       console.error('Logout error:', err);
       setLogoutLoading(false);

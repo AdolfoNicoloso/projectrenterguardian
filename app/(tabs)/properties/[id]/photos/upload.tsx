@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import type { ImagePickerAsset } from 'expo-image-picker';
 import { PRGButton, PRGLoadingOverlay, PRGHeader, useToast } from '../../../../../src/components';
 import { photosService } from '../../../../../src/services/photosService';
 import { processImageForUpload } from '../../../../../src/services/photoUploadService';
+import { usePropertiesStore } from '../../../../../src/state/propertiesStore';
+import { capturedAtFromExif } from '../../../../../src/utils/cmsDateTime';
+import { canEditProperty } from '../../../../../src/utils/propertyAccess';
 import { colors, spacing, typography } from '../../../../../src/theme';
 
 interface UploadProgress {
@@ -20,10 +23,32 @@ export default function PhotoUploadScreen() {
   const { showToast } = useToast();
   const [uploads, setUploads] = useState<UploadProgress[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
 
   // Handle array params (Expo Router sometimes returns arrays)
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const spaceId = Array.isArray(params.spaceId) ? params.spaceId[0] : params.spaceId;
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      const cached = usePropertiesStore.getState().byId[id];
+      if (cached) {
+        if (!cancelled) setCanEdit(canEditProperty(cached));
+        return;
+      }
+      try {
+        const prop = await usePropertiesStore.getState().fetchOne(id);
+        if (!cancelled) setCanEdit(canEditProperty(prop));
+      } catch {
+        if (!cancelled) setCanEdit(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   const requestPermissions = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -35,6 +60,7 @@ export default function PhotoUploadScreen() {
   };
 
   const handlePickImages = async () => {
+    if (!canEdit) return;
     const hasPermission = await requestPermissions();
     if (!hasPermission) return;
 
@@ -53,6 +79,7 @@ export default function PhotoUploadScreen() {
   };
 
   const handleTakePhoto = async () => {
+    if (!canEdit) return;
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       alert('Permission to access camera is required!');
@@ -74,7 +101,7 @@ export default function PhotoUploadScreen() {
 
 
   const uploadPhotos = async (assets: ImagePickerAsset[]) => {
-    if (!id) return;
+    if (!id || !canEdit) return;
 
     setUploading(true);
     const uploadList: UploadProgress[] = assets.map(asset => ({
@@ -84,70 +111,67 @@ export default function PhotoUploadScreen() {
     }));
     setUploads(uploadList);
 
+    let successCount = 0;
+    let failCount = 0;
+
     try {
       for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
 
-        // Process image (handles HEIC conversion and base64 conversion)
-        const processed = await processImageForUpload(asset);
+        try {
+          const processed = await processImageForUpload(asset);
 
-        const file = {
-          base64: processed.base64,
-          type: processed.mimeType,
-          name: processed.fileName,
-        };
+          const photoData: {
+            property: string;
+            captured_at: string;
+            space?: string;
+            assignment_status?: string;
+          } = {
+            property: id,
+            captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
+          };
 
-        // Upload file and get file ID
-        const fileId = await photosService.uploadFile(file);
+          if (spaceId) {
+            photoData.space = spaceId;
+            photoData.assignment_status = 'confirmed';
+          }
 
-        // Create photo metadata with space assignment
-        // If spaceId is provided (uploading from space screen), assign to that space
-        // Otherwise, don't pass space/assignment_status - let Directus use defaults
-        const photoData: {
-          property: string;
-          file: string;
-          captured_at: string;
-          space?: string;
-          assignment_status?: string;
-        } = {
-          property: id,
-          file: fileId,
-          captured_at: asset.exif?.DateTimeOriginal
-            ? new Date(asset.exif.DateTimeOriginal).toISOString()
-            : new Date().toISOString(),
-        };
+          await photosService.uploadAndCreatePhoto(
+            {
+              base64: processed.base64,
+              type: processed.mimeType,
+              name: processed.fileName,
+            },
+            photoData
+          );
 
-        // Only set space and assignment_status if uploading from a space screen
-        if (spaceId) {
-          photoData.space = spaceId;
-          photoData.assignment_status = 'confirmed';
+          successCount += 1;
+          setUploads(prev =>
+            prev.map((upload, idx) =>
+              idx === i ? { ...upload, progress: 100, status: 'success' as const } : upload
+            )
+          );
+        } catch (error) {
+          failCount += 1;
+          console.error('Upload error:', error);
+          setUploads(prev =>
+            prev.map((upload, idx) =>
+              idx === i ? { ...upload, status: 'error' as const } : upload
+            )
+          );
         }
-        // Otherwise, let Directus handle defaults for space and assignment_status
-
-        await photosService.createPhoto(photoData);
-
-        // Update progress
-        setUploads(prev =>
-          prev.map((upload, idx) =>
-            idx === i ? { ...upload, progress: 100, status: 'success' as const } : upload
-          )
-        );
       }
 
-      showToast(`${assets.length} photo(s) uploaded`, 'success');
-      
-      // Navigate back to whatever screen we came from
-      setTimeout(() => {
-        router.back();
-      }, 1000);
-    } catch (error) {
-      console.error('Upload error:', error);
-      showToast('Failed to upload photos', 'error');
-      setUploads(prev =>
-        prev.map(upload =>
-          upload.status === 'uploading' ? { ...upload, status: 'error' as const } : upload
-        )
-      );
+      if (failCount === 0) {
+        showToast(`${successCount} photo(s) uploaded`, 'success');
+        setTimeout(() => {
+          router.back();
+        }, 1000);
+      } else if (successCount === 0) {
+        showToast('Failed to upload photos', 'error');
+      } else {
+        showToast(`${successCount} uploaded, ${failCount} failed`, 'error');
+      }
     } finally {
       setUploading(false);
     }
@@ -157,24 +181,32 @@ export default function PhotoUploadScreen() {
     <View style={styles.container}>
       <PRGHeader title="Upload Photos" showBack />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-        <Text style={styles.subtitle}>
-          Select photos from your device to upload
-        </Text>
+        {!canEdit ? (
+          <Text style={styles.subtitle}>
+            You have view-only access. Ask the owner for edit access to upload photos.
+          </Text>
+        ) : (
+          <>
+            <Text style={styles.subtitle}>
+              Select photos from your device to upload
+            </Text>
 
-        <PRGButton
-          title="Pick from Library"
-          onPress={handlePickImages}
-          disabled={uploading}
-          style={styles.button}
-        />
+            <PRGButton
+              title="Pick from Library"
+              onPress={handlePickImages}
+              disabled={uploading}
+              style={styles.button}
+            />
 
-        <PRGButton
-          title="Take Photo"
-          onPress={handleTakePhoto}
-          disabled={uploading}
-          variant="secondary"
-          style={styles.button}
-        />
+            <PRGButton
+              title="Take Photo"
+              onPress={handleTakePhoto}
+              disabled={uploading}
+              variant="secondary"
+              style={styles.button}
+            />
+          </>
+        )}
 
         {uploads.length > 0 && (
           <View style={styles.uploadList}>
