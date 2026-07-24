@@ -14,14 +14,17 @@ import {
   PRGEmptyState,
   PRGBadge,
   ScreenContainer,
+  NotificationsBellGlyph,
+  useWebPageContentStyle,
 } from '../../../src/components';
 import { reportsService } from '../../../src/services/reportsService';
 import { propertiesService } from '../../../src/services/propertiesService';
-import { spacing, typography } from '../../../src/theme';
+import { Routes } from '../../../src/navigation/routes';
+import { spacing, typography, layout } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
 import type { Report, Property } from '../../../src/types';
 import { formatDisplayDate } from '../../../src/utils/cmsDateTime';
-import { Routes } from '../../../src/navigation/routes';
+import { propertyDisplayName } from '../../../src/constants/propertyStatuses';
 
 function statusBadgeVariant(
   status: Report['status']
@@ -50,6 +53,7 @@ function statusLabel(status: Report['status']): string {
 export default function ReportsListScreen() {
   const router = useRouter();
   const { colors } = useTheme();
+  const listContentStyle = useWebPageContentStyle(styles.listContent, layout.contentMaxWidth);
   const [reports, setReports] = useState<Report[]>([]);
   const [properties, setProperties] = useState<Record<string, Property>>({});
   const [loading, setLoading] = useState(true);
@@ -103,13 +107,22 @@ export default function ReportsListScreen() {
 
   const getPropertyName = (propertyId: string) => {
     const prop = properties[propertyId];
-    return prop?.nickname || prop?.address_free_text || 'Unknown property';
+    if (!prop) return 'Unknown property';
+    return propertyDisplayName(prop);
   };
 
   if (loading && reports.length === 0) {
     return (
       <ScreenContainer includeTopSafeArea={false} includeBottomSafeArea={false} horizontalPadding={0}>
-        <PRGHeader title="Reports" showBack={false} />
+        <PRGHeader
+          title="Reports"
+          showBack={false}
+          rightAction={{
+            icon: <NotificationsBellGlyph />,
+            onPress: () => router.push(Routes.NOTIFICATIONS as never),
+            accessibilityLabel: 'Open notifications',
+          }}
+        />
         <View style={styles.loadingContainer} accessibilityLabel="Loading reports">
           <ActivityIndicator color={colors.primary} size="large" />
           <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
@@ -122,7 +135,15 @@ export default function ReportsListScreen() {
 
   return (
     <ScreenContainer includeTopSafeArea={false} includeBottomSafeArea={false} horizontalPadding={0}>
-      <PRGHeader title="Reports" showBack={false} />
+      <PRGHeader
+        title="Reports"
+        showBack={false}
+        rightAction={{
+          icon: <NotificationsBellGlyph />,
+          onPress: () => router.push(Routes.NOTIFICATIONS as never),
+          accessibilityLabel: 'Open notifications',
+        }}
+      />
       {error && reports.length === 0 ? (
         <PRGEmptyState
           title="Couldn't load reports"
@@ -164,7 +185,7 @@ export default function ReportsListScreen() {
               <Text style={[styles.cardHint, { color: colors.primary }]}>View report</Text>
             </PRGCard>
           )}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={listContentStyle}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

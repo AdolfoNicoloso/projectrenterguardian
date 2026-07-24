@@ -1,16 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { PRGTabBar, PRGHeader, useToast } from '../../../src/components';
+import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
+import { PRGTabBar, PRGHeader, WebPageFrame, useToast } from '../../../src/components';
 import { useProperty } from '../../../src/hooks/usePropertiesQuery';
 import { usePropertiesStore } from '../../../src/state/propertiesStore';
-import { colors, spacing, typography } from '../../../src/theme';
+import { spacing, typography } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
 import { PropertyOverview } from '../../../src/screens/PropertyOverview';
 import { PropertySpaces } from '../../../src/screens/PropertySpaces';
 import { PropertyPhotos } from '../../../src/screens/PropertyPhotos';
 import { PropertyReport } from '../../../src/screens/PropertyReport';
 import { canEditProperty } from '../../../src/utils/propertyAccess';
+import {
+  propertyDisplayName,
+  formatPropertyAddress,
+} from '../../../src/constants/propertyStatuses';
+import { Routes } from '../../../src/navigation/routes';
+import {
+  goBackSkippingPropertiesIndex,
+  hubHrefForPropertyStatus,
+} from '../../../src/navigation/goBackOr';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -22,8 +31,9 @@ const TABS = [
 export default function PropertyDashboardScreen() {
   const { id, editTour } = useLocalSearchParams<{ id: string; editTour?: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
   const { showToast } = useToast();
-  const { colors: themeColors } = useTheme();
+  const { colors } = useTheme();
   const { data: property, isInitialLoading, error } = useProperty(
     typeof id === 'string' ? id : undefined
   );
@@ -42,11 +52,11 @@ export default function PropertyDashboardScreen() {
   }, [startEditingTour, router]);
 
   const handleBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.push('/(tabs)/properties');
-    }
+    goBackSkippingPropertiesIndex(
+      router,
+      navigation,
+      hubHrefForPropertyStatus(property?.status)
+    );
   };
 
   const handleUpdateNickname = async (newNickname: string) => {
@@ -95,6 +105,20 @@ export default function PropertyDashboardScreen() {
     }
   };
 
+  const handleUpdateLeaseEnd = async (leaseEnd: string | null) => {
+    if (!id || !property) return;
+    try {
+      await updateProperty(id, { lease_end_date: leaseEnd });
+      showToast(
+        leaseEnd ? 'Lease end date updated' : 'Lease end date cleared',
+        'success'
+      );
+    } catch (err) {
+      console.error('Error updating lease end:', err);
+      showToast('Failed to update lease end date', 'error');
+    }
+  };
+
   const handleUpdateLeaseTerm = async (leaseTerm: number | null) => {
     if (!id || !property) return;
     try {
@@ -128,7 +152,7 @@ export default function PropertyDashboardScreen() {
       setDeleting(true);
       await deleteProperty(id);
       showToast('Property deleted successfully', 'success');
-      router.replace('/(tabs)/properties');
+      router.replace(hubHrefForPropertyStatus(property?.status) as never);
     } catch (err) {
       console.error('[PropertyDashboardScreen] Error deleting property:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete property';
@@ -139,11 +163,11 @@ export default function PropertyDashboardScreen() {
 
   if (isInitialLoading) {
     return (
-      <View style={[styles.container, { backgroundColor: themeColors.background }]}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <PRGHeader title="Property" showBack onBack={handleBack} />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator color={themeColors.primary} />
-          <Text style={[styles.loadingText, { color: themeColors.textSecondary }]}>
+          <ActivityIndicator color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
             Loading…
           </Text>
         </View>
@@ -153,10 +177,10 @@ export default function PropertyDashboardScreen() {
 
   if (!property) {
     return (
-      <View style={[styles.container, { backgroundColor: themeColors.background }]}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <PRGHeader title="Property Not Found" showBack onBack={handleBack} />
         <View style={styles.errorContainer}>
-          <Text style={[styles.errorText, { color: themeColors.textSecondary }]}>
+          <Text style={[styles.errorText, { color: colors.textSecondary }]}>
             {error || 'Property not found'}
           </Text>
         </View>
@@ -178,6 +202,7 @@ export default function PropertyDashboardScreen() {
             onUpdateListingUrl={canEdit ? handleUpdateListingUrl : undefined}
             onUpdateStatus={canEdit ? handleUpdateStatus : undefined}
             onUpdateLeaseStart={canEdit ? handleUpdateLeaseStart : undefined}
+            onUpdateLeaseEnd={canEdit ? handleUpdateLeaseEnd : undefined}
             onUpdateLeaseTerm={canEdit ? handleUpdateLeaseTerm : undefined}
             onUpdateTourScheduledAt={canEdit ? handleUpdateTourScheduledAt : undefined}
             onDelete={canDelete ? handleDelete : undefined}
@@ -202,6 +227,7 @@ export default function PropertyDashboardScreen() {
             onUpdateListingUrl={canEdit ? handleUpdateListingUrl : undefined}
             onUpdateStatus={canEdit ? handleUpdateStatus : undefined}
             onUpdateLeaseStart={canEdit ? handleUpdateLeaseStart : undefined}
+            onUpdateLeaseEnd={canEdit ? handleUpdateLeaseEnd : undefined}
             onUpdateLeaseTerm={canEdit ? handleUpdateLeaseTerm : undefined}
             onUpdateTourScheduledAt={canEdit ? handleUpdateTourScheduledAt : undefined}
             onDelete={canDelete ? handleDelete : undefined}
@@ -216,15 +242,17 @@ export default function PropertyDashboardScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: themeColors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <PRGHeader
-        title={property.nickname || property.address_free_text}
-        subtitle={property.nickname ? property.address_free_text : undefined}
+        title={propertyDisplayName(property)}
+        subtitle={formatPropertyAddress(property) || undefined}
         showBack
         onBack={handleBack}
       />
       <PRGTabBar tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
-      <View style={styles.content}>{renderTabContent()}</View>
+      <WebPageFrame>
+        <View style={styles.content}>{renderTabContent()}</View>
+      </WebPageFrame>
     </View>
   );
 }
@@ -232,7 +260,6 @@ export default function PropertyDashboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.gray[50],
   },
   loadingContainer: {
     flex: 1,

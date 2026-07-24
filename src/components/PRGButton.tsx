@@ -34,7 +34,7 @@ export const PRGButton: React.FC<PRGButtonProps> = ({
   // Apply variant-specific styles
   if (variant === 'primary') {
     buttonStyle.push({ backgroundColor: colors.primary });
-    textStyle.push({ color: colors.textInverse });
+    textStyle.push({ color: colors.onPrimary });
   } else if (variant === 'secondary') {
     buttonStyle.push({ 
       backgroundColor: 'transparent',
@@ -47,7 +47,7 @@ export const PRGButton: React.FC<PRGButtonProps> = ({
     textStyle.push({ color: colors.primary });
   } else if (variant === 'danger') {
     buttonStyle.push({ backgroundColor: colors.error });
-    textStyle.push({ color: colors.textInverse });
+    textStyle.push({ color: colors.onPrimary });
   }
 
   if (disabled || loading) {
@@ -59,7 +59,7 @@ export const PRGButton: React.FC<PRGButtonProps> = ({
   }
 
   const indicatorColor =
-    variant === 'primary' || variant === 'danger' ? colors.textInverse : colors.primary;
+    variant === 'primary' || variant === 'danger' ? colors.onPrimary : colors.primary;
 
   return (
     <TouchableOpacity

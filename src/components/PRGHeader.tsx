@@ -1,9 +1,12 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { useRouter, useNavigation } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, spacing, typography } from '../theme';
+import { spacing, typography, layout } from '../theme';
 import { useTheme } from '../theme/useTheme';
+import { useDesktopLayout } from '../hooks/useDesktopLayout';
+import { goBackOr } from '../navigation/goBackOr';
+import { Routes } from '../navigation/routes';
 
 interface HeaderAction {
   label?: string;
@@ -33,34 +36,24 @@ export const PRGHeader: React.FC<PRGHeaderProps> = ({
   onBack,
 }) => {
   const router = useRouter();
-  const navigation = useNavigation();
-  const canGoBack = navigation.canGoBack();
+  const canGoBack = router.canGoBack();
   const insets = useSafeAreaInsets();
   const { colors: themeColors } = useTheme();
+  const isDesktop = useDesktopLayout();
 
   const handleBack = () => {
     if (onBack) {
       onBack();
       return;
     }
-    
-    // Use router.back() for proper native iOS backward animation
-    // This uses the native navigation stack animation
-    if (canGoBack) {
-      router.back();
-      return;
-    }
-    
-    // Fallback: if we can't go back but showBack is true, navigate to properties list
-    // This handles cases where navigation stack isn't properly initialized
-    if (showBack === true) {
-      router.push('/(tabs)/properties');
+    if (showBack === true || canGoBack) {
+      goBackOr(router, Routes.RENTS.LIST);
     }
   };
 
   // If showBack is explicitly true, always show it
-  // Otherwise, only show if navigation.canGoBack() is true
-  const shouldShowBack = showBack === true ? true : (showBack === false ? false : canGoBack);
+  // Otherwise, only show if the router has history
+  const shouldShowBack = showBack === true ? true : showBack === false ? false : canGoBack;
   const actions =
     rightActions && rightActions.length > 0
       ? rightActions
@@ -69,45 +62,90 @@ export const PRGHeader: React.FC<PRGHeaderProps> = ({
         : [];
 
   return (
-    <View style={[styles.container, { 
-      backgroundColor: themeColors.background,
-      borderBottomColor: themeColors.border,
-      paddingTop: insets.top + spacing.sm,
-    }]}>
-      <View style={styles.content}>
-        {/* Left: Back button */}
-        <View style={styles.left}>
-          {shouldShowBack ? (
-            <TouchableOpacity
-              onPress={handleBack}
-              style={styles.backButton}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-            >
-              <Text style={[styles.backText, { color: themeColors.primary }]}>
-                {Platform.OS === 'ios' ? '‹' : '←'}
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: themeColors.background,
+          borderBottomColor: themeColors.border,
+          paddingTop: isDesktop ? spacing.md : insets.top + spacing.sm,
+        },
+        isDesktop && styles.containerDesktop,
+      ]}
+    >
+      <View
+        style={[
+          styles.content,
+          isDesktop && styles.contentDesktop,
+          isDesktop && { maxWidth: layout.contentMaxWidth },
+        ]}
+      >
+        {/* Left: Back button (mobile) or back + title (desktop) */}
+        {isDesktop ? (
+          <View style={styles.desktopLeft}>
+            {shouldShowBack ? (
+              <TouchableOpacity
+                onPress={handleBack}
+                style={styles.backButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+              >
+                <Text style={[styles.backText, { color: themeColors.primary }]}>←</Text>
+              </TouchableOpacity>
+            ) : null}
+            <View style={styles.desktopTitleBlock}>
+              <Text style={[styles.title, styles.titleDesktop, { color: themeColors.text }]} numberOfLines={1}>
+                {title}
               </Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.leftPlaceholder} />
-          )}
-        </View>
+              {subtitle ? (
+                <Text
+                  style={[styles.subtitle, styles.subtitleDesktop, { color: themeColors.textSecondary }]}
+                  numberOfLines={1}
+                >
+                  {subtitle}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        ) : (
+          <>
+            <View style={styles.left}>
+              {shouldShowBack ? (
+                <TouchableOpacity
+                  onPress={handleBack}
+                  style={styles.backButton}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Go back"
+                >
+                  <Text style={[styles.backText, { color: themeColors.primary }]}>
+                    {Platform.OS === 'ios' ? '‹' : '←'}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.leftPlaceholder} />
+              )}
+            </View>
 
-        {/* Center: Title and subtitle */}
-        <View style={styles.center}>
-          <Text style={[styles.title, { color: themeColors.text }]} numberOfLines={1}>
-            {title}
-          </Text>
-          {subtitle && (
-            <Text style={[styles.subtitle, { color: themeColors.textSecondary }]} numberOfLines={1}>
-              {subtitle}
-            </Text>
-          )}
-        </View>
+            <View style={styles.center}>
+              <Text style={[styles.title, { color: themeColors.text }]} numberOfLines={1}>
+                {title}
+              </Text>
+              {subtitle && (
+                <Text
+                  style={[styles.subtitle, { color: themeColors.textSecondary }]}
+                  numberOfLines={1}
+                >
+                  {subtitle}
+                </Text>
+              )}
+            </View>
+          </>
+        )}
 
         {/* Right: Action button(s) */}
-        <View style={[styles.right, actions.length > 1 && styles.rightWide]}>
+        <View style={[styles.right, actions.length > 1 && styles.rightWide, isDesktop && styles.rightDesktop]}>
           {actions.length > 0 ? (
             <View style={styles.rightActions}>
               {actions.map((action, index) => (
@@ -137,7 +175,7 @@ export const PRGHeader: React.FC<PRGHeaderProps> = ({
                 </TouchableOpacity>
               ))}
             </View>
-          ) : (
+          ) : isDesktop ? null : (
             <View style={styles.rightPlaceholder} />
           )}
         </View>
@@ -150,7 +188,10 @@ const styles = StyleSheet.create({
   container: {
     borderBottomWidth: 1,
     paddingBottom: spacing.sm,
-    // paddingTop is set dynamically via style prop to include safe area insets
+  },
+  containerDesktop: {
+    paddingBottom: spacing.md,
+    alignItems: 'center',
   },
   content: {
     flexDirection: 'row',
@@ -159,12 +200,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     minHeight: 44,
   },
+  contentDesktop: {
+    width: '100%',
+    paddingHorizontal: layout.contentGutter,
+    minHeight: 52,
+  },
   left: {
     width: 80,
     alignItems: 'flex-start',
   },
   leftPlaceholder: {
     width: 80,
+  },
+  desktopLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minWidth: 0,
+    paddingRight: spacing.md,
+  },
+  desktopTitleBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   center: {
     flex: 1,
@@ -174,6 +232,10 @@ const styles = StyleSheet.create({
   right: {
     minWidth: 80,
     alignItems: 'flex-end',
+  },
+  rightDesktop: {
+    minWidth: 0,
+    flexShrink: 0,
   },
   rightWide: {
     minWidth: 112,
@@ -202,11 +264,18 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily.bold,
     textAlign: 'center',
   },
+  titleDesktop: {
+    textAlign: 'left',
+    fontSize: typography.fontSize['2xl'],
+  },
   subtitle: {
     fontSize: typography.fontSize.sm,
     fontFamily: typography.fontFamily.regular,
     marginTop: spacing.xs / 2,
     textAlign: 'center',
+  },
+  subtitleDesktop: {
+    textAlign: 'left',
   },
   actionButton: {
     paddingVertical: spacing.xs,
@@ -221,4 +290,3 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xl,
   },
 });
-

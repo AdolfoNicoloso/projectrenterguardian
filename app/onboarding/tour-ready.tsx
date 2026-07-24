@@ -12,7 +12,7 @@ export default function TourReadyScreen() {
 
   const startTour = () => {
     if (!propertyId) {
-      router.replace('/(tabs)/properties');
+      router.replace('/(tabs)/tours');
       return;
     }
     router.replace(
@@ -48,7 +48,7 @@ export default function TourReadyScreen() {
         />
         <PRGButton
           title="Go to Home"
-          onPress={() => router.replace('/(tabs)/properties')}
+          onPress={() => router.replace('/(tabs)/tours')}
           variant="ghost"
           style={styles.button}
         />

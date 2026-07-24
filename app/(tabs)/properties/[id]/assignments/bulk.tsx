@@ -4,12 +4,14 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { PRGButton } from '../../../../../src/components';
 import { spacesService } from '../../../../../src/services/spacesService';
 import { assignmentsService } from '../../../../../src/services/assignmentsService';
-import { colors, spacing, typography } from '../../../../../src/theme';
+import { spacing, typography } from '../../../../../src/theme';
+import { useTheme } from '../../../../../src/theme/useTheme';
 import type { Space } from '../../../../../src/types';
 
 export default function BulkAssignmentScreen() {
   const { id, photoIds } = useLocalSearchParams<{ id: string; photoIds: string }>();
   const router = useRouter();
+  const { colors } = useTheme();
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [selectedSpace, setSelectedSpace] = useState<string>('');
   const [assigning, setAssigning] = useState(false);
@@ -49,9 +51,16 @@ export default function BulkAssignmentScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Assign {photoIdList.length} Photo{photoIdList.length > 1 ? 's' : ''}</Text>
-      <Text style={styles.subtitle}>Select a space to assign these photos to</Text>
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.content}
+    >
+      <Text style={[styles.title, { color: colors.text }]}>
+        Assign {photoIdList.length} Photo{photoIdList.length > 1 ? 's' : ''}
+      </Text>
+      <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+        Select a space to assign these photos to
+      </Text>
 
       <View style={styles.spacesList}>
         {spaces.map((space) => (
@@ -86,7 +95,6 @@ export default function BulkAssignmentScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.light,
   },
   content: {
     padding: spacing.lg,
@@ -94,12 +102,10 @@ const styles = StyleSheet.create({
   title: {
     fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold,
-    color: colors.dark,
     marginBottom: spacing.sm,
   },
   subtitle: {
     fontSize: typography.fontSize.base,
-    color: colors.gray[600],
     marginBottom: spacing.xl,
   },
   spacesList: {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -18,14 +18,31 @@ import { getAuthErrorMessage } from '../../src/utils/authErrors';
 import { isRequired, isValidEmail } from '../../src/utils/validation';
 import { spacing, typography } from '../../src/theme';
 import { useTheme } from '../../src/theme/useTheme';
+import { useAuthStore } from '../../src/state/authStore';
+import { goBackOr } from '../../src/navigation/goBackOr';
+import { Routes } from '../../src/navigation/routes';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const { colors } = useTheme();
+  const { isAuthenticated, user } = useAuthStore();
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    const existing = (user?.email || firebaseAuth.getCurrentUser()?.email || '').trim();
+    if (existing) setEmail(existing);
+  }, [user?.email]);
+
+  const handleBack = () => {
+    if (isAuthenticated) {
+      goBackOr(router, Routes.PROFILE);
+      return;
+    }
+    router.replace('/(auth)/login');
+  };
 
   const handleSubmit = async () => {
     if (!isRequired(email)) {
@@ -63,7 +80,7 @@ export default function ForgotPasswordScreen() {
       <PRGHeader
         title="Reset password"
         showBack
-        onBack={() => router.replace('/(auth)/login')}
+        onBack={handleBack}
       />
       <KeyboardAvoidingView
         style={styles.keyboard}
@@ -83,13 +100,13 @@ export default function ForgotPasswordScreen() {
                 <Text style={[styles.title, { color: colors.text }]}>Check your email</Text>
                 <Text style={[styles.body, { color: colors.textSecondary }]}>
                   If an account exists for that address, we sent a link to reset your password.
-                  The link may take a few minutes to arrive.
+                  The link may take a few minutes to arrive — also check spam or promotions.
                 </Text>
                 <PRGButton
-                  title="Back to sign in"
-                  onPress={() => router.replace('/(auth)/login')}
+                  title={isAuthenticated ? 'Back to profile' : 'Back to sign in'}
+                  onPress={handleBack}
                   style={styles.button}
-                  accessibilityLabel="Back to sign in"
+                  accessibilityLabel={isAuthenticated ? 'Back to profile' : 'Back to sign in'}
                 />
               </>
             ) : (
@@ -127,8 +144,8 @@ export default function ForgotPasswordScreen() {
                 />
 
                 <PRGButton
-                  title="Back to sign in"
-                  onPress={() => router.replace('/(auth)/login')}
+                  title={isAuthenticated ? 'Back to profile' : 'Back to sign in'}
+                  onPress={handleBack}
                   variant="ghost"
                   style={styles.button}
                   disabled={loading}

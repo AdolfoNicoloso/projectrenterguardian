@@ -1,15 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import type { ImagePickerAsset } from 'expo-image-picker';
 import { PRGButton, PRGLoadingOverlay, PRGHeader, useToast } from '../../../../../src/components';
-import { photosService } from '../../../../../src/services/photosService';
-import { processImageForUpload } from '../../../../../src/services/photoUploadService';
+import {
+  formatBatchUploadToast,
+  pickMediaFromLibraryAsync,
+  uploadImagePickerAssetsBatch,
+} from '../../../../../src/services/mediaBatchUpload';
 import { usePropertiesStore } from '../../../../../src/state/propertiesStore';
 import { capturedAtFromExif } from '../../../../../src/utils/cmsDateTime';
 import { canEditProperty } from '../../../../../src/utils/propertyAccess';
-import { colors, spacing, typography } from '../../../../../src/theme';
+import { spacing, typography } from '../../../../../src/theme';
+import { useTheme } from '../../../../../src/theme/useTheme';
 
 interface UploadProgress {
   filename: string;
@@ -20,9 +24,14 @@ interface UploadProgress {
 export default function PhotoUploadScreen() {
   const params = useLocalSearchParams<{ id: string | string[]; spaceId?: string | string[] }>();
   const router = useRouter();
+  const { colors } = useTheme();
   const { showToast } = useToast();
   const [uploads, setUploads] = useState<UploadProgress[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
   const [canEdit, setCanEdit] = useState(false);
 
   // Handle array params (Expo Router sometimes returns arrays)
@@ -53,7 +62,7 @@ export default function PhotoUploadScreen() {
   const requestPermissions = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      alert('Permission to access camera roll is required!');
+      alert('Permission to access photo library is required!');
       return false;
     }
     return true;
@@ -61,20 +70,22 @@ export default function PhotoUploadScreen() {
 
   const handlePickImages = async () => {
     if (!canEdit) return;
-    const hasPermission = await requestPermissions();
-    if (!hasPermission) return;
+    try {
+      if (Platform.OS !== 'web') {
+        const hasPermission = await requestPermissions();
+        if (!hasPermission) return;
+      }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.8,
-      // Request compatible format (JPEG) instead of HEIC
-      preferredAssetRepresentationMode:
-        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-    });
-
-    if (!result.canceled && result.assets) {
-      await uploadPhotos(result.assets);
+      const assets = await pickMediaFromLibraryAsync();
+      if (assets?.length) {
+        await uploadPhotos(assets);
+      }
+    } catch (error) {
+      console.error('Error picking media:', error);
+      showToast(
+        error instanceof Error ? error.message : 'Failed to open photo library',
+        'error'
+      );
     }
   };
 
@@ -104,28 +115,23 @@ export default function PhotoUploadScreen() {
     if (!id || !canEdit) return;
 
     setUploading(true);
-    const uploadList: UploadProgress[] = assets.map(asset => ({
+    setUploadProgress({ completed: 0, total: assets.length });
+    const uploadList: UploadProgress[] = assets.map((asset) => ({
       filename: asset.fileName || 'photo.jpg',
       progress: 0,
       status: 'uploading' as const,
     }));
     setUploads(uploadList);
 
-    let successCount = 0;
-    let failCount = 0;
-
     try {
-      for (let i = 0; i < assets.length; i++) {
-        const asset = assets[i];
-
-        try {
-          const processed = await processImageForUpload(asset);
-
+      const { successCount, failCount, firstErrorMessage } = await uploadImagePickerAssetsBatch(
+        assets,
+        (asset) => {
           const photoData: {
             property: string;
             captured_at: string;
             space?: string;
-            assignment_status?: string;
+            assignment_status?: 'confirmed';
           } = {
             property: id,
             captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
@@ -136,59 +142,60 @@ export default function PhotoUploadScreen() {
             photoData.assignment_status = 'confirmed';
           }
 
-          await photosService.uploadAndCreatePhoto(
-            {
-              base64: processed.base64,
-              type: processed.mimeType,
-              name: processed.fileName,
-            },
-            photoData
-          );
-
-          successCount += 1;
-          setUploads(prev =>
-            prev.map((upload, idx) =>
-              idx === i ? { ...upload, progress: 100, status: 'success' as const } : upload
-            )
-          );
-        } catch (error) {
-          failCount += 1;
-          console.error('Upload error:', error);
-          setUploads(prev =>
-            prev.map((upload, idx) =>
-              idx === i ? { ...upload, status: 'error' as const } : upload
-            )
-          );
+          return photoData;
+        },
+        {
+          onProgress: ({ completed, total }) =>
+            setUploadProgress({ completed, total }),
+          onItemComplete: (result) => {
+            setUploads((prev) =>
+              prev.map((upload, idx) => {
+                if (idx !== result.index) return upload;
+                if (result.ok) {
+                  return { ...upload, progress: 100, status: 'success' as const };
+                }
+                return { ...upload, status: 'error' as const };
+              })
+            );
+          },
         }
-      }
+      );
 
-      if (failCount === 0) {
-        showToast(`${successCount} photo(s) uploaded`, 'success');
+      const toast = formatBatchUploadToast(
+        successCount,
+        failCount,
+        'photo(s)',
+        // DO NOT REMOVE CODE — video uploads temporarily disabled:
+        // 'photo(s)/video(s)',
+        firstErrorMessage
+      );
+      if (toast) showToast(toast.message, toast.type);
+      if (failCount === 0 && successCount > 0) {
         setTimeout(() => {
           router.back();
         }, 1000);
-      } else if (successCount === 0) {
-        showToast('Failed to upload photos', 'error');
-      } else {
-        showToast(`${successCount} uploaded, ${failCount} failed`, 'error');
       }
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
       <PRGHeader title="Upload Photos" showBack />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         {!canEdit ? (
-          <Text style={styles.subtitle}>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             You have view-only access. Ask the owner for edit access to upload photos.
           </Text>
         ) : (
           <>
-            <Text style={styles.subtitle}>
-              Select photos from your device to upload
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              Select many photos at once from your device
+              {/* DO NOT REMOVE CODE — video uploads temporarily disabled:
+              Select many photos or videos at once from your device
+              */}
             </Text>
 
             <PRGButton
@@ -211,18 +218,28 @@ export default function PhotoUploadScreen() {
         {uploads.length > 0 && (
           <View style={styles.uploadList}>
             {uploads.map((upload, index) => (
-              <View key={index} style={styles.uploadItem}>
-                <Text style={styles.uploadFilename}>{upload.filename}</Text>
+              <View
+                key={index}
+                style={[styles.uploadItem, { backgroundColor: colors.backgroundSecondary }]}
+              >
+                <Text style={[styles.uploadFilename, { color: colors.text }]}>
+                  {upload.filename}
+                </Text>
                 {upload.status === 'uploading' && (
-                  <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: `${upload.progress}%` }]} />
+                  <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        { width: `${upload.progress}%`, backgroundColor: colors.primary },
+                      ]}
+                    />
                   </View>
                 )}
                 {upload.status === 'success' && (
-                  <Text style={styles.successText}>✓ Uploaded</Text>
+                  <Text style={[styles.successText, { color: colors.success }]}>✓ Uploaded</Text>
                 )}
                 {upload.status === 'error' && (
-                  <Text style={styles.errorText}>✗ Failed</Text>
+                  <Text style={[styles.errorText, { color: colors.error }]}>✗ Failed</Text>
                 )}
               </View>
             ))}
@@ -230,7 +247,19 @@ export default function PhotoUploadScreen() {
         )}
       </ScrollView>
 
-      <PRGLoadingOverlay visible={uploading} message="Uploading photos..." />
+      <PRGLoadingOverlay
+        visible={uploading}
+        message={
+          uploadProgress && uploadProgress.total > 0
+            ? `Uploading ${uploadProgress.completed}/${uploadProgress.total}...`
+            : 'Uploading photos...'
+        }
+        progress={
+          uploadProgress && uploadProgress.total > 0
+            ? Math.round((uploadProgress.completed / uploadProgress.total) * 100)
+            : undefined
+        }
+      />
     </View>
   );
 }
@@ -238,7 +267,6 @@ export default function PhotoUploadScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.gray[50],
   },
   scrollView: {
     flex: 1,
@@ -248,7 +276,6 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: typography.fontSize.base,
-    color: colors.gray[600],
     marginBottom: spacing.xl,
   },
   button: {
@@ -259,33 +286,27 @@ const styles = StyleSheet.create({
   },
   uploadItem: {
     padding: spacing.md,
-    backgroundColor: colors.gray[50],
     borderRadius: 8,
     marginBottom: spacing.sm,
   },
   uploadFilename: {
     fontSize: typography.fontSize.sm,
-    color: colors.dark,
     marginBottom: spacing.xs,
   },
   progressBar: {
     height: 4,
-    backgroundColor: colors.gray[200],
     borderRadius: 2,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: colors.primary,
   },
   successText: {
     fontSize: typography.fontSize.sm,
-    color: colors.success,
     marginTop: spacing.xs,
   },
   errorText: {
     fontSize: typography.fontSize.sm,
-    color: colors.error,
     marginTop: spacing.xs,
   },
 });

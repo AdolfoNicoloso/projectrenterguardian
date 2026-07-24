@@ -27,8 +27,9 @@ import {
   tourLocalDayKey,
 } from '../../../src/utils/tourSchedule';
 import {
-  isTouringPropertyStatus,
+  isToursHubPropertyStatus,
   propertyDisplayName,
+  formatPropertyAddress,
 } from '../../../src/constants/propertyStatuses';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -87,7 +88,7 @@ export default function ToursCalendarScreen() {
   const touringWithSchedule = useMemo(
     () =>
       properties.filter(
-        (p) => isTouringPropertyStatus(p.status) && hasTourScheduledAt(p)
+        (p) => isToursHubPropertyStatus(p.status) && hasTourScheduledAt(p)
       ),
     [properties]
   );
@@ -117,7 +118,7 @@ export default function ToursCalendarScreen() {
     () =>
       properties.filter(
         (p) =>
-          isTouringPropertyStatus(p.status) && !hasTourScheduledAt(p)
+          isToursHubPropertyStatus(p.status) && !hasTourScheduledAt(p)
       ).length,
     [properties]
   );
@@ -276,14 +277,12 @@ export default function ToursCalendarScreen() {
                 <Text style={[styles.tourTitle, { color: colors.text }]}>
                   {propertyDisplayName(property)}
                 </Text>
-                {property.nickname ? (
-                  <Text
-                    style={[styles.tourAddress, { color: colors.textSecondary }]}
-                    numberOfLines={2}
-                  >
-                    {property.address_free_text}
-                  </Text>
-                ) : null}
+                <Text
+                  style={[styles.tourAddress, { color: colors.textSecondary }]}
+                  numberOfLines={2}
+                >
+                  {formatPropertyAddress(property)}
+                </Text>
               </PRGCard>
             );
           })

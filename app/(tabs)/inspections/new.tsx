@@ -12,7 +12,8 @@ import {
 import {
   canPropertyStartInspectionType,
   isActivePropertyStatus,
-  isTouringPropertyStatus,
+  isToursHubPropertyStatus,
+  propertyDisplayName,
 } from '../../../src/constants/propertyStatuses';
 import { spacing, typography } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
@@ -95,7 +96,7 @@ export default function NewInspectionStartScreen() {
     try {
       const data = await propertiesService.getMyProperties();
       const eligiblePool = data.filter(
-        (p) => isActivePropertyStatus(p.status) || isTouringPropertyStatus(p.status)
+        (p) => isActivePropertyStatus(p.status) || isToursHubPropertyStatus(p.status)
       );
       setAllProperties(eligiblePool);
 
@@ -213,11 +214,11 @@ export default function NewInspectionStartScreen() {
           eligibleProperties.map((property) => (
             <PRGButton
               key={property.id}
-              title={property.nickname || property.address_free_text}
+              title={propertyDisplayName(property)}
               onPress={() => setSelectedPropertyId(property.id)}
               variant={selectedPropertyId === property.id ? 'primary' : 'secondary'}
               style={styles.propertyButton}
-              accessibilityLabel={`Select property ${property.nickname || property.address_free_text}`}
+              accessibilityLabel={`Select property ${propertyDisplayName(property)}`}
             />
           ))
         )}

@@ -12,12 +12,13 @@ import {
 import { propertiesService } from '../../../../src/services/propertiesService';
 import { usePropertiesStore } from '../../../../src/state/propertiesStore';
 import {
-  isTouringPropertyStatus,
+  isToursHubPropertyStatus,
   propertyDisplayName,
 } from '../../../../src/constants/propertyStatuses';
 import { spacing, typography } from '../../../../src/theme';
 import { useTheme } from '../../../../src/theme/useTheme';
 import { isRequired } from '../../../../src/utils/validation';
+import { leaseEndFromStartAndTerm } from '../../../../src/utils/cmsDateTime';
 import type { Property } from '../../../../src/types';
 
 /**
@@ -34,6 +35,7 @@ export default function ConvertPropertyScreen() {
   const [property, setProperty] = useState<Property | null>(null);
   const [otherTouring, setOtherTouring] = useState<Property[]>([]);
   const [leaseStartISO, setLeaseStartISO] = useState<string | null>(null);
+  const [leaseEndISO, setLeaseEndISO] = useState<string | null>(null);
   const [leaseTerm, setLeaseTerm] = useState<number | null>(null);
   const [archiveOthers, setArchiveOthers] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -55,9 +57,10 @@ export default function ConvertPropertyScreen() {
         if (cancelled) return;
         setProperty(prop);
         if (prop.lease_start_date) setLeaseStartISO(prop.lease_start_date);
+        if (prop.lease_end_date) setLeaseEndISO(prop.lease_end_date);
         if (prop.lease_term != null) setLeaseTerm(prop.lease_term);
         setOtherTouring(
-          list.filter((p) => p.id !== id && isTouringPropertyStatus(p.status))
+          list.filter((p) => p.id !== id && isToursHubPropertyStatus(p.status))
         );
       } catch (err) {
         console.error(err);
@@ -88,6 +91,7 @@ export default function ConvertPropertyScreen() {
       await updateProperty(id, {
         status: 'active',
         lease_start_date: leaseStartISO,
+        lease_end_date: leaseEndISO,
         lease_term: leaseTerm,
       } as Partial<Property> & { lease_term?: number | null });
 
@@ -117,13 +121,13 @@ export default function ConvertPropertyScreen() {
     );
   }
 
-  if (!property || !isTouringPropertyStatus(property.status)) {
+  if (!property || !isToursHubPropertyStatus(property.status)) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <PRGHeader title="Choose this place" showBack />
         <View style={styles.centered}>
           <Text style={[styles.body, { color: colors.textSecondary }]}>
-            Only touring properties can be converted here.
+            Only Touring or Applied properties can be converted here.
           </Text>
           <PRGButton
             title="Go back"
@@ -162,7 +166,11 @@ export default function ConvertPropertyScreen() {
           <DateField
             label="Lease start date *"
             valueISO={leaseStartISO}
-            onChangeISO={setLeaseStartISO}
+            onChangeISO={(iso) => {
+              setLeaseStartISO(iso);
+              const derived = leaseEndFromStartAndTerm(iso, leaseTerm);
+              if (derived) setLeaseEndISO(derived);
+            }}
             dateOnly
             placeholder="Select lease start date"
           />
@@ -172,10 +180,25 @@ export default function ConvertPropertyScreen() {
           <NumberPicker
             label="Lease term (months)"
             value={leaseTerm}
-            onChange={setLeaseTerm}
+            onChange={(term) => {
+              setLeaseTerm(term);
+              const derived = leaseEndFromStartAndTerm(leaseStartISO, term);
+              if (derived) setLeaseEndISO(derived);
+            }}
             min={1}
             max={36}
             placeholder="Optional"
+          />
+        </View>
+
+        <View style={styles.field}>
+          <DateField
+            label="Lease end date"
+            valueISO={leaseEndISO}
+            onChangeISO={setLeaseEndISO}
+            dateOnly
+            minimumISO={leaseStartISO || undefined}
+            placeholder="Auto from start + term (editable)"
           />
         </View>
 

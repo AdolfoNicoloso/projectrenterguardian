@@ -14,11 +14,17 @@ export * from './PRGConfirmDialog';
 export * from './PhotoCaptureNotesSheet';
 export * from './NotesListEditor';
 export * from './ScreenContainer';
+export * from './DesktopSideNav';
+export * from './WebPageFrame';
 export * from './SVGIcon';
 export * from './DateField';
 export * from './LanguagePicker';
 export * from './NumberPicker';
 export * from './CalendarIcon';
+export * from './NavTabIcons';
 export * from './PhoneAuthForm';
+export * from './NotificationsBellButton';
+export * from './InviteNotificationBanner';
+export * from './NotificationsBootstrap';
 export { useToast } from './PRGToastProvider';
 

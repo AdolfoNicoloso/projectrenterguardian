@@ -1,4 +1,5 @@
 import type { Property } from '../types';
+import { isAppliedPropertyStatus } from '../constants/propertyStatuses';
 
 export function hasTourScheduledAt(property: Property): boolean {
   return (
@@ -20,6 +21,59 @@ export function getTourScheduleBucket(
   const tourMs = Date.parse(property.tour_scheduled_at || '');
   if (!Number.isFinite(tourMs)) return 'unscheduled';
   return nowMs >= tourMs + TOUR_PASSED_GRACE_MS ? 'toured' : 'upcoming';
+}
+
+/**
+ * Single Tours-hub stage for card badges.
+ * Collapses property status (Touring/Applied) + schedule (Scheduled/Toured/…)
+ * into one signal — Applied wins; otherwise the schedule stage.
+ */
+export type ToursHubStageId = 'applied' | 'scheduled' | 'toured' | 'unscheduled';
+
+export type ToursHubStage = {
+  id: ToursHubStageId;
+  label: string;
+  variant: 'success' | 'warning' | 'default';
+  /** Show tour datetime next to the badge when useful. */
+  showTourAt: boolean;
+};
+
+export function getToursHubStage(
+  property: Property,
+  nowMs = Date.now()
+): ToursHubStage {
+  if (isAppliedPropertyStatus(property.status)) {
+    return {
+      id: 'applied',
+      label: 'Applied',
+      variant: 'success',
+      showTourAt: false,
+    };
+  }
+
+  const bucket = getTourScheduleBucket(property, nowMs);
+  if (bucket === 'upcoming') {
+    return {
+      id: 'scheduled',
+      label: 'Scheduled',
+      variant: 'success',
+      showTourAt: true,
+    };
+  }
+  if (bucket === 'toured') {
+    return {
+      id: 'toured',
+      label: 'Toured',
+      variant: 'default',
+      showTourAt: true,
+    };
+  }
+  return {
+    id: 'unscheduled',
+    label: 'Not scheduled',
+    variant: 'warning',
+    showTourAt: false,
+  };
 }
 
 export const TOUR_SCHEDULE_BUCKET_ORDER: Record<TourScheduleBucket, number> = {

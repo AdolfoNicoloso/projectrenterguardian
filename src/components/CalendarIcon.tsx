@@ -1,27 +1,28 @@
 import React from 'react';
 import Svg, { Path, Rect } from 'react-native-svg';
+import { NAV_ICON_SIZE } from './NavTabIcons';
 
 type CalendarIconProps = {
   size?: number;
   color: string;
 };
 
-/** Simple calendar glyph for header / section actions. */
-export function CalendarIcon({ size = 22, color }: CalendarIconProps) {
+/** Simple calendar glyph for header / section actions (matches nav stroke style). */
+export function CalendarIcon({ size = NAV_ICON_SIZE.action, color }: CalendarIconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Rect
-        x="3"
+        x="3.5"
         y="5"
-        width="18"
-        height="16"
+        width="17"
+        height="15"
         rx="2"
         stroke={color}
         strokeWidth="2"
       />
-      <Path d="M3 10h18" stroke={color} strokeWidth="2" />
+      <Path d="M3.5 10h17" stroke={color} strokeWidth="2" />
       <Path
-        d="M8 3v4M16 3v4"
+        d="M8 3.5v4M16 3.5v4"
         stroke={color}
         strokeWidth="2"
         strokeLinecap="round"

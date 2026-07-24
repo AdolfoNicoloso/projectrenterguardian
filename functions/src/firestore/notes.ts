@@ -112,7 +112,8 @@ export function normalizeNotesEntries(
             row.created_by_app_profile_id :
             "",
         created_by_name:
-          typeof row.created_by_name === "string" && row.created_by_name.trim() ?
+          typeof row.created_by_name === "string" &&
+          row.created_by_name.trim() ?
             row.created_by_name.trim() :
             "Someone",
         updated_at:
@@ -124,7 +125,8 @@ export function normalizeNotesEntries(
             row.updated_by_app_profile_id :
             null,
         updated_by_name:
-          typeof row.updated_by_name === "string" && row.updated_by_name.trim() ?
+          typeof row.updated_by_name === "string" &&
+          row.updated_by_name.trim() ?
             row.updated_by_name.trim() :
             null,
       });

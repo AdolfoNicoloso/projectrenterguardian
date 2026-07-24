@@ -11,11 +11,19 @@ import {
 import { propertyMembersService } from '../../src/services/propertyMembersService';
 import { useAuthStore } from '../../src/state/authStore';
 import { usePropertiesStore } from '../../src/state/propertiesStore';
+import { useNotificationsStore } from '../../src/state/notificationsStore';
+import { Routes } from '../../src/navigation/routes';
 import { spacing, typography } from '../../src/theme';
 import { useTheme } from '../../src/theme/useTheme';
 
+function inviteTokenFromParams(token: string | string[] | undefined): string {
+  if (typeof token === 'string') return token.trim();
+  if (Array.isArray(token) && typeof token[0] === 'string') return token[0].trim();
+  return '';
+}
+
 export default function AcceptInviteScreen() {
-  const { token } = useLocalSearchParams<{ token: string }>();
+  const { token } = useLocalSearchParams<{ token: string | string[] }>();
   const router = useRouter();
   const { colors } = useTheme();
   const { showToast } = useToast();
@@ -37,7 +45,7 @@ export default function AcceptInviteScreen() {
   const [error, setError] = useState('');
   const [showPhone, setShowPhone] = useState(false);
 
-  const inviteToken = typeof token === 'string' ? token : '';
+  const inviteToken = inviteTokenFromParams(token);
 
   useEffect(() => {
     if (!inviteToken || authLoading) return;
@@ -64,14 +72,16 @@ export default function AcceptInviteScreen() {
   }, [inviteToken, isAuthenticated, authLoading]);
 
   const accept = async () => {
-    if (!inviteToken) return;
+    if (!inviteToken || accepting) return;
     setAccepting(true);
     setError('');
     try {
-      const result = await propertyMembersService.acceptInvite(inviteToken);
+      await propertyMembersService.acceptInvite(inviteToken);
       showToast('Invitation accepted', 'success');
       await usePropertiesStore.getState().fetchList({ force: true });
-      router.replace(`/(tabs)/properties/${result.property_id}`);
+      void useNotificationsStore.getState().fetch({ force: true });
+      // Stay in hub — invitations are tracked in the notifications inbox.
+      router.replace(Routes.RENTS.LIST);
     } catch (err: any) {
       setError(err?.message || 'Could not accept invite');
       showToast(err?.message || 'Could not accept invite', 'error');
@@ -79,6 +89,9 @@ export default function AcceptInviteScreen() {
       setAccepting(false);
     }
   };
+
+  const inviteNotPending =
+    !!preview && (preview.status || '').toLowerCase() !== 'pending';
 
   if (authLoading) {
     return (
@@ -139,7 +152,7 @@ export default function AcceptInviteScreen() {
 
   return (
     <ScreenContainer>
-      <PRGHeader title="Invitation" showBack onBack={() => router.replace('/(tabs)/properties')} />
+      <PRGHeader title="Invitation" showBack onBack={() => router.replace(Routes.RENTS.LIST)} />
       <View style={styles.content}>
         {loading ? (
           <Text style={{ color: colors.textSecondary }}>Loading invite…</Text>
@@ -161,16 +174,23 @@ export default function AcceptInviteScreen() {
             {error ? (
               <Text style={[styles.error, { color: colors.error }]}>{error}</Text>
             ) : null}
+            {inviteNotPending ? (
+              <Text style={[styles.error, { color: colors.textSecondary }]}>
+                This invite is no longer pending
+                {preview?.status ? ` (${preview.status})` : ''}.
+              </Text>
+            ) : null}
             <PRGButton
               title="Accept invitation"
               onPress={accept}
               loading={accepting}
-              disabled={preview?.status !== 'pending' && !!preview}
+              disabled={!inviteToken || inviteNotPending}
               style={styles.button}
+              accessibilityLabel="Accept invitation"
             />
             <PRGButton
               title="Not now"
-              onPress={() => router.replace('/(tabs)/properties')}
+              onPress={() => router.replace(Routes.RENTS.LIST)}
               variant="ghost"
               style={styles.button}
             />

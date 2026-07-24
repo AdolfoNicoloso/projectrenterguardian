@@ -3,7 +3,8 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { PRGButton, PRGCard, PRGBadge, PRGEmptyState, useToast } from '../components';
 import { reportsService } from '../services/reportsService';
-import { colors, spacing, typography } from '../theme';
+import { spacing, typography } from '../theme';
+import { useTheme } from '../theme/useTheme';
 import type { Report } from '../types';
 import { formatDisplayDate } from '../utils/cmsDateTime';
 
@@ -13,6 +14,7 @@ interface PropertyReportProps {
 
 export const PropertyReport: React.FC<PropertyReportProps> = ({ propertyId }) => {
   const router = useRouter();
+  const { colors } = useTheme();
   const { showToast } = useToast();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,16 +57,19 @@ export const PropertyReport: React.FC<PropertyReportProps> = ({ propertyId }) =>
 
   if (loading) {
     return (
-      <View style={styles.container}>
-        <Text>Loading...</Text>
+      <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
+        <Text style={{ color: colors.textSecondary }}>Loading...</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}
+      contentContainerStyle={styles.content}
+    >
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Report Archive</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Report Archive</Text>
         {reports.length === 0 ? (
           <PRGEmptyState
             title="No Reports"
@@ -79,7 +84,7 @@ export const PropertyReport: React.FC<PropertyReportProps> = ({ propertyId }) =>
             >
               <View style={styles.reportRow}>
                 <View style={styles.reportInfo}>
-                  <Text style={styles.reportDate}>
+                  <Text style={[styles.reportDate, { color: colors.text }]}>
                     {formatDate(report.date_created)}
                   </Text>
                   <PRGBadge
@@ -107,7 +112,6 @@ export const PropertyReport: React.FC<PropertyReportProps> = ({ propertyId }) =>
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.gray[50],
   },
   content: {
     padding: spacing.md,
@@ -118,7 +122,6 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.semibold,
-    color: colors.dark,
     marginBottom: spacing.md,
   },
   reportRow: {
@@ -135,7 +138,6 @@ const styles = StyleSheet.create({
   reportDate: {
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.medium,
-    color: colors.dark,
     marginBottom: spacing.xs,
   },
   badge: {

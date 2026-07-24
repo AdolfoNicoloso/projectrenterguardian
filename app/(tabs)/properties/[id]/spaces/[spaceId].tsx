@@ -12,6 +12,8 @@ import { useTheme } from '../../../../../src/theme/useTheme';
 import type { NoteEntry, Space } from '../../../../../src/types';
 import { coerceNotesEntries } from '../../../../../src/utils/notes';
 import { canEditProperty } from '../../../../../src/utils/propertyAccess';
+import { goBackOr } from '../../../../../src/navigation/goBackOr';
+import { Routes } from '../../../../../src/navigation/routes';
 
 export default function SpaceDetailScreen() {
   const params = useLocalSearchParams<{ id: string | string[]; spaceId: string | string[] }>();
@@ -239,17 +241,10 @@ export default function SpaceDetailScreen() {
   };
 
   const handleBack = () => {
-    // Use native back navigation for proper iOS backward animation
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      // Fallback: navigate to property detail if we can't go back
-      if (id) {
-        router.push(`/(tabs)/properties/${id}`);
-      } else {
-        router.push('/(tabs)/properties');
-      }
-    }
+    goBackOr(
+      router,
+      id ? Routes.PROPERTIES.DETAIL(id) : Routes.RENTS.LIST
+    );
   };
 
   if (loading && !space) {

@@ -15,30 +15,34 @@ import {
   PRGBadge,
   PRGConfirmDialog,
   ScreenContainer,
+  NotificationsBellGlyph,
   useToast,
+  useWebPageContentStyle,
 } from '../../../src/components';
 import { inspectionsService } from '../../../src/services/inspectionsService';
 import { usePropertiesStore } from '../../../src/state/propertiesStore';
+import { useDesktopLayout } from '../../../src/hooks/useDesktopLayout';
 import { spacing, typography } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
 import type { Inspection, Property } from '../../../src/types';
 import { formatDisplayDate } from '../../../src/utils/cmsDateTime';
 import { getInspectionTypeLabel } from '../../../src/constants/inspectionTypes';
+import { propertyDisplayName } from '../../../src/constants/propertyStatuses';
+import { Routes } from '../../../src/navigation/routes';
 
 type DeleteStage = null | 'confirm' | 'confirmAgain';
 
 function propertyLabel(property?: Property | null): string {
   if (!property) return 'Unknown property';
-  const nickname = property.nickname?.trim();
-  if (nickname) return nickname;
-  const address = property.address_free_text?.trim();
-  return address || 'Unknown property';
+  return propertyDisplayName(property) || 'Unknown property';
 }
 
 export default function InspectionsHomeScreen() {
   const router = useRouter();
   const { showToast } = useToast();
   const { colors } = useTheme();
+  const isDesktop = useDesktopLayout();
+  const listContentStyle = useWebPageContentStyle(styles.listContent);
   const propertiesById = usePropertiesStore((s) => s.byId);
   const fetchList = usePropertiesStore((s) => s.fetchList);
   const [drafts, setDrafts] = useState<Inspection[]>([]);
@@ -135,7 +139,15 @@ export default function InspectionsHomeScreen() {
   if (loading && drafts.length === 0 && completed.length === 0) {
     return (
       <ScreenContainer includeTopSafeArea={false} includeBottomSafeArea={false} horizontalPadding={0}>
-        <PRGHeader title="Inspections" showBack={false} />
+        <PRGHeader
+          title="Inspections"
+          showBack={false}
+          rightAction={{
+            icon: <NotificationsBellGlyph />,
+            onPress: () => router.push(Routes.NOTIFICATIONS as never),
+            accessibilityLabel: 'Open notifications',
+          }}
+        />
         <View style={styles.loadingContainer}>
           <Text style={{ color: colors.textSecondary }}>Loading...</Text>
         </View>
@@ -148,10 +160,17 @@ export default function InspectionsHomeScreen() {
       <PRGHeader
         title="Inspections"
         showBack={false}
-        rightAction={{
-          label: 'New',
-          onPress: () => router.push('/(tabs)/inspections/new'),
-        }}
+        rightActions={[
+          {
+            icon: <NotificationsBellGlyph />,
+            onPress: () => router.push(Routes.NOTIFICATIONS as never),
+            accessibilityLabel: 'Open notifications',
+          },
+          {
+            label: 'New',
+            onPress: () => router.push('/(tabs)/inspections/new'),
+          },
+        ]}
       />
       {drafts.length === 0 && completed.length === 0 ? (
         <PRGEmptyState
@@ -169,77 +188,82 @@ export default function InspectionsHomeScreen() {
               <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
                 {section.title}
               </Text>
-              {section.data.map((inspection) => (
-                <PRGCard key={inspection.id} style={styles.card}>
-                  <View style={styles.cardHeader}>
-                    <View style={styles.cardTitleBlock}>
-                      <Text style={[styles.cardTitle, { color: colors.text }]}>
-                        {getInspectionTypeLabel(inspection.inspection_type)}
-                      </Text>
-                      <Text style={[styles.cardProperty, { color: colors.textSecondary }]}>
-                        {propertyLabel(propertiesById[inspection.property_id])}
-                      </Text>
-                      {section.kind === 'draft' ? (
-                        <PRGBadge label="Draft" variant="warning" style={styles.badge} />
-                      ) : (
-                        <PRGBadge label="Completed" variant="success" style={styles.badge} />
-                      )}
-                    </View>
-                    <Text style={[styles.cardDate, { color: colors.textTertiary }]}>
-                      {formatDate(inspection.started_at)}
-                    </Text>
-                  </View>
-
-                  {section.kind === 'draft' && (
-                    <>
-                      <View style={styles.progressContainer}>
-                        <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-                          <View
-                            style={[
-                              styles.progressFill,
-                              {
-                                width: `${inspection.inspections_progress}%`,
-                                backgroundColor: colors.primary,
-                              },
-                            ]}
-                          />
-                        </View>
-                        <Text style={[styles.progressText, { color: colors.textSecondary }]}>
-                          {inspection.inspections_progress}%
+              <View style={isDesktop ? styles.cardGrid : undefined}>
+                {section.data.map((inspection) => (
+                  <PRGCard
+                    key={inspection.id}
+                    style={isDesktop ? [styles.card, styles.cardDesktop] : styles.card}
+                  >
+                    <View style={styles.cardHeader}>
+                      <View style={styles.cardTitleBlock}>
+                        <Text style={[styles.cardTitle, { color: colors.text }]}>
+                          {getInspectionTypeLabel(inspection.inspection_type)}
                         </Text>
+                        <Text style={[styles.cardProperty, { color: colors.textSecondary }]}>
+                          {propertyLabel(propertiesById[inspection.property_id])}
+                        </Text>
+                        {section.kind === 'draft' ? (
+                          <PRGBadge label="Draft" variant="warning" style={styles.badge} />
+                        ) : (
+                          <PRGBadge label="Completed" variant="success" style={styles.badge} />
+                        )}
                       </View>
-                      <PRGButton
-                        title="Open draft"
-                        onPress={() => openDraft(inspection)}
-                        variant="primary"
-                        style={styles.resumeButton}
-                        accessibilityLabel="Open draft inspection"
-                        accessibilityHint="Continues the inspection where you left off"
-                      />
-                      <PRGButton
-                        title="Delete draft"
-                        onPress={() => startDelete(inspection)}
-                        variant="ghost"
-                        textColor={colors.error}
-                        style={styles.deleteButton}
-                        accessibilityLabel="Delete draft inspection"
-                      />
-                    </>
-                  )}
+                      <Text style={[styles.cardDate, { color: colors.textTertiary }]}>
+                        {formatDate(inspection.started_at)}
+                      </Text>
+                    </View>
 
-                  {section.kind === 'completed' && (
-                    <PRGButton
-                      title="View Results"
-                      onPress={() => handleViewResults(inspection)}
-                      variant="secondary"
-                      style={styles.viewButton}
-                    />
-                  )}
-                </PRGCard>
-              ))}
+                    {section.kind === 'draft' && (
+                      <>
+                        <View style={styles.progressContainer}>
+                          <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+                            <View
+                              style={[
+                                styles.progressFill,
+                                {
+                                  width: `${inspection.inspections_progress}%`,
+                                  backgroundColor: colors.primary,
+                                },
+                              ]}
+                            />
+                          </View>
+                          <Text style={[styles.progressText, { color: colors.textSecondary }]}>
+                            {inspection.inspections_progress}%
+                          </Text>
+                        </View>
+                        <PRGButton
+                          title="Open draft"
+                          onPress={() => openDraft(inspection)}
+                          variant="primary"
+                          style={styles.resumeButton}
+                          accessibilityLabel="Open draft inspection"
+                          accessibilityHint="Continues the inspection where you left off"
+                        />
+                        <PRGButton
+                          title="Delete draft"
+                          onPress={() => startDelete(inspection)}
+                          variant="ghost"
+                          textColor={colors.error}
+                          style={styles.deleteButton}
+                          accessibilityLabel="Delete draft inspection"
+                        />
+                      </>
+                    )}
+
+                    {section.kind === 'completed' && (
+                      <PRGButton
+                        title="View Results"
+                        onPress={() => handleViewResults(inspection)}
+                        variant="secondary"
+                        style={styles.viewButton}
+                      />
+                    )}
+                  </PRGCard>
+                ))}
+              </View>
             </View>
           )}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={listContentStyle}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
           }
@@ -284,6 +308,11 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: spacing.lg,
   },
+  cardGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+  },
   sectionTitle: {
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.semibold,
@@ -293,6 +322,12 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: spacing.sm,
+  },
+  cardDesktop: {
+    width: '48%',
+    flexGrow: 1,
+    minWidth: 280,
+    marginBottom: 0,
   },
   cardHeader: {
     flexDirection: 'row',

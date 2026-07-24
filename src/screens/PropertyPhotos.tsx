@@ -7,9 +7,16 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { PRGPhotoGrid, PRGEmptyState, useToast, PRGLoadingOverlay, SVGIcon } from '../components';
 import { photosService } from '../services/photosService';
-import { processImageForUpload } from '../services/photoUploadService';
+import { PHOTO_DOCUMENT_PICKER_TYPES } from '../services/photoUploadService';
+import {
+  formatBatchUploadToast,
+  mapWithConcurrency,
+  pickMediaFromLibraryAsync,
+  uploadImagePickerAssetsBatch,
+} from '../services/mediaBatchUpload';
 import { capturedAtFromExif } from '../utils/cmsDateTime';
-import { colors, spacing, typography } from '../theme';
+import { spacing, typography } from '../theme';
+import { useTheme } from '../theme/useTheme';
 import type { Photo } from '../types';
 import PlusFillIcon from '../../assets/nav_bar_symbols_final/plus.fill.svg';
 
@@ -23,11 +30,16 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
   canEdit = true,
 }) => {
   const router = useRouter();
+  const { colors } = useTheme();
   const { showToast } = useToast();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [filter, setFilter] = useState<'all' | 'unassigned' | 'assigned'>('all');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
 
   const loadPhotos = useCallback(async (opts?: { soft?: boolean }) => {
     const soft = opts?.soft ?? false;
@@ -56,7 +68,7 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
   const requestPermissions = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      alert('Permission to access camera roll is required!');
+      alert('Permission to access photo library is required!');
       return false;
     }
     return true;
@@ -64,19 +76,23 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
 
   const handlePickImages = async () => {
     if (!canEdit) return;
-    const hasPermission = await requestPermissions();
-    if (!hasPermission) return;
+    try {
+      // Native path needs an explicit permission prompt; web uses DocumentPicker.
+      if (Platform.OS !== 'web') {
+        const hasPermission = await requestPermissions();
+        if (!hasPermission) return;
+      }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.8,
-      preferredAssetRepresentationMode:
-        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-    });
-
-    if (!result.canceled && result.assets) {
-      await uploadPhotos(result.assets);
+      const assets = await pickMediaFromLibraryAsync();
+      if (assets?.length) {
+        await uploadPhotos(assets);
+      }
+    } catch (error) {
+      console.error('Error picking media:', error);
+      showToast(
+        error instanceof Error ? error.message : 'Failed to open photo library',
+        'error'
+      );
     }
   };
 
@@ -104,7 +120,7 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
     if (!canEdit) return;
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
+        type: [...PHOTO_DOCUMENT_PICKER_TYPES],
         multiple: true,
         copyToCacheDirectory: true,
       });
@@ -118,22 +134,40 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
     }
   };
 
-  const processDocumentFile = async (document: DocumentPicker.DocumentPickerAsset): Promise<{ base64: string; mimeType: string; fileName: string }> => {
+  const processDocumentFile = async (
+    document: DocumentPicker.DocumentPickerAsset
+  ): Promise<{
+    base64?: string;
+    uri?: string;
+    mimeType: string;
+    fileName: string;
+    byteSize?: number;
+  }> => {
     if (!document.uri) {
       throw new Error('Document URI is missing');
+    }
+
+    const mimeType = document.mimeType || 'application/octet-stream';
+    const fileName = document.name || `file-${Date.now()}`;
+    const byteSize = typeof document.size === 'number' ? document.size : undefined;
+
+    // Videos: keep URI for direct Storage upload (no base64).
+    // DO NOT REMOVE CODE — video uploads temporarily disabled.
+    if (mimeType.toLowerCase().startsWith('video/')) {
+      throw new Error('Video uploads are temporarily disabled');
+      // DO NOT REMOVE CODE
+      // return { uri: document.uri, mimeType, fileName, byteSize };
     }
 
     const base64Data = await FileSystem.readAsStringAsync(document.uri, {
       encoding: FileSystem.EncodingType.Base64,
     });
 
-    const mimeType = document.mimeType || 'application/octet-stream';
-    const fileName = document.name || `file-${Date.now()}`;
-
     return {
       base64: `data:${mimeType};base64,${base64Data}`,
       mimeType,
       fileName,
+      byteSize,
     };
   };
 
@@ -141,44 +175,42 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
     if (!propertyId || !canEdit) return;
 
     setUploading(true);
-    let successCount = 0;
-    let failCount = 0;
+    setUploadProgress({ completed: 0, total: documents.length });
 
     try {
-      for (let i = 0; i < documents.length; i++) {
-        const document = documents[i];
-        try {
+      const { successCount, failCount, firstErrorMessage } = await mapWithConcurrency(
+        documents,
+        3,
+        async (document) => {
           const processed = await processDocumentFile(document);
-          await photosService.uploadAndCreatePhoto(
+          return photosService.uploadAndCreatePhoto(
             {
               base64: processed.base64,
+              uri: processed.uri,
               type: processed.mimeType,
               name: processed.fileName,
+              byteSize: processed.byteSize,
             },
             {
               property: propertyId,
-              captured_at: document.modificationTime
-                ? new Date(document.modificationTime).toISOString()
-                : new Date().toISOString(),
+              captured_at: new Date().toISOString(),
             }
           );
-          successCount += 1;
-        } catch (error) {
-          failCount += 1;
-          console.error('Upload error:', error);
-        }
-      }
+        },
+        ({ completed, total }) => setUploadProgress({ completed, total })
+      );
 
-      if (failCount === 0) {
-        showToast(`${successCount} file(s) uploaded`, 'success');
-      } else if (successCount === 0) {
-        showToast('Failed to upload files', 'error');
-      } else {
-        showToast(`${successCount} uploaded, ${failCount} failed`, 'error');
-      }
+      const toast = formatBatchUploadToast(
+        successCount,
+        failCount,
+        'file(s)',
+        firstErrorMessage
+      );
+      if (toast) showToast(toast.message, toast.type);
       await loadPhotos({ soft: true });
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -186,42 +218,35 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
     if (!propertyId || !canEdit) return;
 
     setUploading(true);
-    let successCount = 0;
-    let failCount = 0;
+    setUploadProgress({ completed: 0, total: assets.length });
 
     try {
-      for (let i = 0; i < assets.length; i++) {
-        const asset = assets[i];
-        try {
-          const processed = await processImageForUpload(asset);
-          await photosService.uploadAndCreatePhoto(
-            {
-              base64: processed.base64,
-              type: processed.mimeType,
-              name: processed.fileName,
-            },
-            {
-              property: propertyId,
-              captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
-            }
-          );
-          successCount += 1;
-        } catch (error) {
-          failCount += 1;
-          console.error('Upload error:', error);
-        }
-      }
+      const { successCount, failCount, firstErrorMessage } =
+        await uploadImagePickerAssetsBatch(
+          assets,
+          (asset) => ({
+            property: propertyId,
+            captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
+          }),
+          {
+            onProgress: ({ completed, total }) =>
+              setUploadProgress({ completed, total }),
+          }
+        );
 
-      if (failCount === 0) {
-        showToast(`${successCount} photo(s) uploaded`, 'success');
-      } else if (successCount === 0) {
-        showToast('Failed to upload photos', 'error');
-      } else {
-        showToast(`${successCount} uploaded, ${failCount} failed`, 'error');
-      }
+      const toast = formatBatchUploadToast(
+        successCount,
+        failCount,
+        'photo(s)',
+        // DO NOT REMOVE CODE — video uploads temporarily disabled:
+        // 'photo(s)/video(s)',
+        firstErrorMessage
+      );
+      if (toast) showToast(toast.message, toast.type);
       await loadPhotos({ soft: true });
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -231,6 +256,8 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
       ActionSheetIOS.showActionSheetWithOptions(
         {
           options: ['Cancel', 'Take Photo', 'Photo Library', 'Choose Files'],
+          // DO NOT REMOVE CODE — video uploads temporarily disabled:
+          // options: ['Cancel', 'Take Photo', 'Photo & Video Library', 'Choose Files'],
           cancelButtonIndex: 0,
         },
         (buttonIndex) => {
@@ -247,7 +274,9 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
       handlePickImages();
     } else {
       Alert.alert(
-        'Upload Photos',
+        'Upload photos',
+        // DO NOT REMOVE CODE — video uploads temporarily disabled:
+        // 'Upload photos or videos',
         'Choose an option',
         [
           {
@@ -260,6 +289,8 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
           },
           {
             text: 'Photo Library',
+            // DO NOT REMOVE CODE
+            // text: 'Photo & Video Library',
             onPress: handlePickImages,
           },
           {
@@ -274,37 +305,78 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
 
   if (loading && photos.length === 0) {
     return (
-      <View style={styles.container}>
-        <Text>Loading...</Text>
+      <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
+        <Text style={{ color: colors.textSecondary }}>Loading...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.filters}>
+    <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
+      <View
+        style={[
+          styles.filters,
+          { backgroundColor: colors.card, borderBottomColor: colors.border },
+        ]}
+      >
         <View style={styles.filterTabs}>
           <TouchableOpacity
-            style={[styles.filter, filter === 'all' && styles.filterActive]}
+            style={[
+              styles.filter,
+              filter === 'all' && { backgroundColor: colors.primary + '20' },
+            ]}
             onPress={() => setFilter('all')}
           >
-            <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>
+            <Text
+              style={[
+                styles.filterText,
+                { color: colors.textSecondary },
+                filter === 'all' && {
+                  color: colors.primary,
+                  fontWeight: typography.fontWeight.semibold,
+                },
+              ]}
+            >
               All
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.filter, filter === 'unassigned' && styles.filterActive]}
+            style={[
+              styles.filter,
+              filter === 'unassigned' && { backgroundColor: colors.primary + '20' },
+            ]}
             onPress={() => setFilter('unassigned')}
           >
-            <Text style={[styles.filterText, filter === 'unassigned' && styles.filterTextActive]}>
+            <Text
+              style={[
+                styles.filterText,
+                { color: colors.textSecondary },
+                filter === 'unassigned' && {
+                  color: colors.primary,
+                  fontWeight: typography.fontWeight.semibold,
+                },
+              ]}
+            >
               Unassigned
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.filter, filter === 'assigned' && styles.filterActive]}
+            style={[
+              styles.filter,
+              filter === 'assigned' && { backgroundColor: colors.primary + '20' },
+            ]}
             onPress={() => setFilter('assigned')}
           >
-            <Text style={[styles.filterText, filter === 'assigned' && styles.filterTextActive]}>
+            <Text
+              style={[
+                styles.filterText,
+                { color: colors.textSecondary },
+                filter === 'assigned' && {
+                  color: colors.primary,
+                  fontWeight: typography.fontWeight.semibold,
+                },
+              ]}
+            >
               Assigned
             </Text>
           </TouchableOpacity>
@@ -336,7 +408,19 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
         )}
       </ScrollView>
 
-      <PRGLoadingOverlay visible={uploading} message="Uploading photos..." />
+      <PRGLoadingOverlay
+        visible={uploading}
+        message={
+          uploadProgress && uploadProgress.total > 0
+            ? `Uploading ${uploadProgress.completed}/${uploadProgress.total}...`
+            : 'Uploading photos...'
+        }
+        progress={
+          uploadProgress && uploadProgress.total > 0
+            ? Math.round((uploadProgress.completed / uploadProgress.total) * 100)
+            : undefined
+        }
+      />
     </View>
   );
 };
@@ -344,16 +428,13 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.gray[50],
   },
   filters: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: spacing.md,
-    backgroundColor: colors.light,
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray[200],
   },
   filterTabs: {
     flexDirection: 'row',
@@ -369,16 +450,8 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     marginLeft: spacing.sm,
   },
-  filterActive: {
-    backgroundColor: colors.primary + '20',
-  },
   filterText: {
     fontSize: typography.fontSize.sm,
-    color: colors.gray[600],
-  },
-  filterTextActive: {
-    color: colors.primary,
-    fontWeight: typography.fontWeight.semibold,
   },
   scrollView: {
     flex: 1,

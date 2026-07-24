@@ -7,6 +7,7 @@ import { useAuthStore } from '../src/state/authStore';
 import { checkGoogleRedirect } from '../src/services/googleAuth';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PRGToastProvider } from '../src/components';
+import { NotificationsBootstrap } from '../src/components/NotificationsBootstrap';
 import { useTheme } from '../src/theme/useTheme';
 import { typography } from '../src/theme/typography';
 import { FONT_CONFIG } from '../src/theme/fonts';
@@ -56,6 +57,10 @@ export default function RootLayout() {
         const style = document.createElement('style');
         style.id = 'app-font-styles';
         style.textContent = `
+          html, body, #root {
+            height: 100%;
+            margin: 0;
+          }
           body, input, textarea, select, button {
             font-family: ${FONT_CONFIG.regular} !important;
           }
@@ -90,20 +95,23 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <PRGToastProvider>
-        <Stack 
-          screenOptions={{ 
-            headerShown: false,
-            // Note: Using native iOS animations (default behavior)
-            // Do not add custom animation/presentation settings here
-            // iOS native stack animations (slide from right/pop to right) are preferred
-          }}
-        >
-          <Stack.Screen name="welcome" />
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="onboarding" />
-          <Stack.Screen name="invite/[token]" />
-        </Stack>
+        <NotificationsBootstrap>
+          <Stack 
+            screenOptions={{ 
+              headerShown: false,
+              // Note: Using native iOS animations (default behavior)
+              // Do not add custom animation/presentation settings here
+              // iOS native stack animations (slide from right/pop to right) are preferred
+            }}
+          >
+            <Stack.Screen name="welcome" />
+            <Stack.Screen name="(auth)" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="onboarding" />
+            <Stack.Screen name="invite/[token]" />
+            <Stack.Screen name="legal/[doc]" />
+          </Stack>
+        </NotificationsBootstrap>
       </PRGToastProvider>
     </SafeAreaProvider>
   );

@@ -17,6 +17,7 @@ export default function PropertiesLayout() {
       <Stack.Screen name="tour-schedule" />
       <Stack.Screen name="lease-info" />
       <Stack.Screen name="nickname" />
+      <Stack.Screen name="invite-collaborators" />
       <Stack.Screen name="[id]" />
     </Stack>
   );

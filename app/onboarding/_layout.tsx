@@ -11,6 +11,7 @@ export default function OnboardingLayout() {
       <Stack.Screen name="property-link" />
       <Stack.Screen name="tour-schedule" />
       <Stack.Screen name="nickname" />
+      <Stack.Screen name="invite-collaborators" />
       <Stack.Screen name="tour-ready" />
       <Stack.Screen name="inspection-ready" />
       <Stack.Screen name="move-in-ready" />

@@ -37,9 +37,8 @@ export default function CreateFirstPropertyScreen() {
       });
 
       showToast('Property created', 'success');
-      // Reset navigation stack: go to Properties list first, then navigate to property detail
-      // This ensures back button goes to Properties list instead of creation screens
-      router.replace(Routes.PROPERTIES.LIST);
+      // Land on hub, then open detail so Back skips onboarding create screens.
+      router.replace(Routes.RENTS.LIST);
       router.push(Routes.PROPERTIES.DETAIL(property.id));
     } catch (err: any) {
       setError(err.message || 'Failed to create property');

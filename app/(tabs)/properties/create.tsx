@@ -79,7 +79,8 @@ export default function CreatePropertyScreen() {
       });
 
       showToast('Property created', 'success');
-      router.replace(Routes.PROPERTIES.LIST);
+      // Land on hub, then open detail so Back skips the create wizard.
+      router.replace(Routes.RENTS.LIST);
       router.push(Routes.PROPERTIES.DETAIL(property.id));
     } catch (err: any) {
       setError(err.message || 'Failed to create property');

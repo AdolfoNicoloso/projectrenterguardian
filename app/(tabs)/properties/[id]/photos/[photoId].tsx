@@ -12,6 +12,8 @@ import type { NoteEntry, Photo, Space } from '../../../../../src/types';
 import { getAuthenticatedCmsFileUrl, getCmsFilePlaceholderUrl } from '../../../../../src/utils/fileUrl';
 import { formatDisplayDate } from '../../../../../src/utils/cmsDateTime';
 import { coerceNotesEntries } from '../../../../../src/utils/notes';
+import { goBackOr } from '../../../../../src/navigation/goBackOr';
+import { Routes } from '../../../../../src/navigation/routes';
 
 export default function PhotoDetailScreen() {
   const { id, photoId } = useLocalSearchParams<{ id: string; photoId: string }>();
@@ -93,13 +95,10 @@ export default function PhotoDetailScreen() {
   );
 
   const handleBack = () => {
-    // Use native back navigation for proper iOS animation
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      // Fallback: go to properties list if we can't go back
-      router.push('/(tabs)/properties');
-    }
+    goBackOr(
+      router,
+      id ? Routes.PROPERTIES.DETAIL(id) : Routes.RENTS.LIST
+    );
   };
 
   const handleSave = async () => {
@@ -179,7 +178,7 @@ export default function PhotoDetailScreen() {
   if (loading && !photo) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <PRGHeader title="Photo" showBack />
+        <PRGHeader title="Photo" showBack onBack={handleBack} />
         <View style={styles.loadingContainer}>
           <Text style={{ color: colors.text }}>Loading...</Text>
         </View>
@@ -190,7 +189,7 @@ export default function PhotoDetailScreen() {
   if (!photo) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <PRGHeader title="Photo Not Found" showBack />
+        <PRGHeader title="Photo Not Found" showBack onBack={handleBack} />
         <View style={styles.errorContainer}>
           <Text style={[styles.errorText, { color: colors.textSecondary }]}>Photo not found</Text>
         </View>

@@ -13,6 +13,7 @@ import { useDiscardableForm } from '../../../src/hooks/useDiscardableForm';
 import { spacing, typography } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
 import { isRequired } from '../../../src/utils/validation';
+import { leaseEndFromStartAndTerm } from '../../../src/utils/cmsDateTime';
 import { Routes } from '../../../src/navigation/routes';
 
 export default function LeaseInfoScreen() {
@@ -26,6 +27,7 @@ export default function LeaseInfoScreen() {
   }>();
   const { colors } = useTheme();
   const [leaseStartISO, setLeaseStartISO] = useState<string | null>(null);
+  const [leaseEndISO, setLeaseEndISO] = useState<string | null>(null);
   const [leaseTerm, setLeaseTerm] = useState<number | null>(null);
   const [error, setError] = useState('');
 
@@ -34,13 +36,22 @@ export default function LeaseInfoScreen() {
     () =>
       Boolean(
         leaseStartISO ||
+          leaseEndISO ||
           leaseTerm != null ||
           params.street ||
           params.city ||
           params.state ||
           params.zip
       ),
-    [leaseStartISO, leaseTerm, params.street, params.city, params.state, params.zip]
+    [
+      leaseStartISO,
+      leaseEndISO,
+      leaseTerm,
+      params.street,
+      params.city,
+      params.state,
+      params.zip,
+    ]
   );
 
   const discard = useDiscardableForm(isDirty, {
@@ -81,6 +92,7 @@ export default function LeaseInfoScreen() {
         state: params.state,
         zip: params.zip,
         leaseStartISO: leaseStartISO,
+        leaseEndISO: leaseEndISO || '',
         leaseTerm: leaseTerm ? leaseTerm.toString() : '',
         status: 'active',
       },
@@ -133,7 +145,11 @@ export default function LeaseInfoScreen() {
               <DateField
                 label="Lease Start Date *"
                 valueISO={leaseStartISO}
-                onChangeISO={setLeaseStartISO}
+                onChangeISO={(iso) => {
+                  setLeaseStartISO(iso);
+                  const derived = leaseEndFromStartAndTerm(iso, leaseTerm);
+                  if (derived) setLeaseEndISO(derived);
+                }}
                 dateOnly={true}
                 placeholder="Select lease start date"
               />
@@ -143,10 +159,25 @@ export default function LeaseInfoScreen() {
               <NumberPicker
                 label="Lease Term (months)"
                 value={leaseTerm}
-                onChange={setLeaseTerm}
+                onChange={(term) => {
+                  setLeaseTerm(term);
+                  const derived = leaseEndFromStartAndTerm(leaseStartISO, term);
+                  if (derived) setLeaseEndISO(derived);
+                }}
                 min={1}
                 max={36}
                 placeholder="Select number of months"
+              />
+            </View>
+
+            <View style={styles.input}>
+              <DateField
+                label="Lease End Date"
+                valueISO={leaseEndISO}
+                onChangeISO={setLeaseEndISO}
+                dateOnly={true}
+                minimumISO={leaseStartISO || undefined}
+                placeholder="Auto from start + term (editable)"
               />
             </View>
 

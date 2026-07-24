@@ -7,6 +7,11 @@ import { PRGButton } from './PRGButton';
 interface PRGEditableTextRowProps {
   label: string;
   value: string;
+  /**
+   * Shown when not editing. Use when the stored value is empty but a
+   * fallback (e.g. full address) should appear as the current label.
+   */
+  displayValue?: string;
   onSave?: (value: string) => void;
   placeholder?: string;
   editable?: boolean;
@@ -15,11 +20,14 @@ interface PRGEditableTextRowProps {
   maxLength?: number;
   /** When true, empty values may be saved (cleared). */
   allowEmpty?: boolean;
+  /** Lines for the read-only value (default 1). */
+  numberOfLines?: number;
 }
 
 export const PRGEditableTextRow: React.FC<PRGEditableTextRowProps> = ({
   label,
   value,
+  displayValue,
   onSave,
   placeholder,
   editable = true,
@@ -27,10 +35,12 @@ export const PRGEditableTextRow: React.FC<PRGEditableTextRowProps> = ({
   autoCapitalize = 'words',
   maxLength,
   allowEmpty = false,
+  numberOfLines = 1,
 }) => {
   const { colors } = useTheme();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
+  const shownValue = (displayValue ?? value).trim();
 
   useEffect(() => {
     if (!isEditing) {
@@ -78,14 +88,14 @@ export const PRGEditableTextRow: React.FC<PRGEditableTextRowProps> = ({
           <Text
             style={[
               styles.value,
-              { color: value ? colors.text : colors.inputPlaceholder },
-              !value && styles.valuePlaceholder,
+              { color: shownValue ? colors.text : colors.inputPlaceholder },
+              !shownValue && styles.valuePlaceholder,
               styles.valueFlex,
             ]}
-            numberOfLines={1}
+            numberOfLines={numberOfLines}
             ellipsizeMode="tail"
           >
-            {value || placeholder || 'Tap to edit'}
+            {shownValue || placeholder || 'Tap to edit'}
           </Text>
           {editable && (
             <Text style={[styles.editHint, { color: colors.primary }]} numberOfLines={1}>

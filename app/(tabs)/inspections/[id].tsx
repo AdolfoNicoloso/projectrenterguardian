@@ -9,15 +9,21 @@ import { spacesService } from '../../../src/services/spacesService';
 import { reportsService } from '../../../src/services/reportsService';
 import { photosService } from '../../../src/services/photosService';
 import { processImageForUpload } from '../../../src/services/photoUploadService';
+import {
+  formatBatchUploadToast,
+  mediaLibraryPickerOptions,
+  uploadImagePickerAssetsBatch,
+} from '../../../src/services/mediaBatchUpload';
 import { usePropertiesStore } from '../../../src/state/propertiesStore';
 import { capturedAtFromExif } from '../../../src/utils/cmsDateTime';
-import { colors, spacing, typography } from '../../../src/theme';
+import { spacing, typography } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
 import type { Inspection, InspectionStep, Property, Space } from '../../../src/types';
 import {
   getInspectionTypeCopy,
   getInspectionTypeLabel,
 } from '../../../src/constants/inspectionTypes';
+import { propertyDisplayName } from '../../../src/constants/propertyStatuses';
 import { GuidedWalkSpacesStep } from '../../../src/screens/inspection/GuidedWalkSpacesStep';
 import {
   countInspectionSnapshot,
@@ -68,6 +74,7 @@ function resolvePreviousWizardStep(
 export default function InspectionWizardScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { colors } = useTheme();
   const { showToast } = useToast();
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [currentStep, setCurrentStep] = useState<StepKey>('intro');
@@ -361,10 +368,10 @@ export default function InspectionWizardScreen() {
 
   if (loading) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
         <PRGHeader title="Inspection" showBack />
         <View style={styles.loadingContainer}>
-          <Text>Loading...</Text>
+          <Text style={{ color: colors.textSecondary }}>Loading...</Text>
         </View>
       </View>
     );
@@ -372,10 +379,10 @@ export default function InspectionWizardScreen() {
 
   if (!inspection || !stepData) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
         <PRGHeader title="Inspection" showBack />
         <View style={styles.errorContainer}>
-          <Text>Inspection not found</Text>
+          <Text style={{ color: colors.textSecondary }}>Inspection not found</Text>
         </View>
       </View>
     );
@@ -540,7 +547,7 @@ export default function InspectionWizardScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
       <PRGHeader
         title={STEP_TITLES[currentStep]}
         showBack
@@ -554,11 +561,21 @@ export default function InspectionWizardScreen() {
             : undefined
         }
       />
-      <View style={styles.progressContainer}>
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${progress}%` }]} />
+      <View
+        style={[
+          styles.progressContainer,
+          { backgroundColor: colors.card, borderBottomColor: colors.border },
+        ]}
+      >
+        <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+          <View
+            style={[
+              styles.progressFill,
+              { width: `${progress}%`, backgroundColor: colors.primary },
+            ]}
+          />
         </View>
-        <Text style={styles.progressText}>
+        <Text style={[styles.progressText, { color: colors.textSecondary }]}>
           {currentStep === 'capture_spaces'
             ? walkCompleted > 0
               ? `${walkCompleted} space${walkCompleted === 1 ? '' : 's'} documented · Step ${currentStepIndex + 1} of ${flowSteps.length}`
@@ -605,12 +622,13 @@ function IntroStep({
   onContinue: () => void;
   saving: boolean;
 }) {
+  const { colors } = useTheme();
   const copy = getInspectionTypeCopy(inspection.inspection_type);
   return (
     <View>
-      <Text style={styles.stepTitle}>{copy.introTitle}</Text>
-      <Text style={styles.stepDescription}>{copy.introBody}</Text>
-      <Text style={styles.stepDescription}>
+      <Text style={[styles.stepTitle, { color: colors.text }]}>{copy.introTitle}</Text>
+      <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>{copy.introBody}</Text>
+      <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
         Type: {getInspectionTypeLabel(inspection.inspection_type)}
       </Text>
       <PRGButton
@@ -639,15 +657,16 @@ function ChoosePropertyStep({
   onContinue: (propertyId: string) => void;
   saving: boolean;
 }) {
+  const { colors } = useTheme();
   const selectedId = payload.selected_property_id || inspection.property_id;
   
   // If property is already set and matches, just show it
   if (property && selectedId === property.id) {
     return (
       <View>
-        <Text style={styles.stepTitle}>Property Selected</Text>
-        <Text style={styles.stepDescription}>
-          {property.nickname || property.address_free_text}
+        <Text style={[styles.stepTitle, { color: colors.text }]}>Property Selected</Text>
+        <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
+          {propertyDisplayName(property)}
         </Text>
         <PRGButton
           title="Continue"
@@ -664,14 +683,14 @@ function ChoosePropertyStep({
   if (properties.length > 0) {
     return (
       <View>
-        <Text style={styles.stepTitle}>Select Property</Text>
-        <Text style={styles.stepDescription}>
+        <Text style={[styles.stepTitle, { color: colors.text }]}>Select Property</Text>
+        <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
           Please select the property for this inspection.
         </Text>
         {properties.map((prop) => (
           <PRGButton
             key={prop.id}
-            title={prop.nickname || prop.address_free_text}
+            title={propertyDisplayName(prop)}
             onPress={() => onContinue(prop.id)}
             variant={selectedId === prop.id ? 'primary' : 'secondary'}
             style={styles.propertyButton}
@@ -684,8 +703,8 @@ function ChoosePropertyStep({
   // Fallback: use inspection property_id
   return (
     <View>
-      <Text style={styles.stepTitle}>Property</Text>
-      <Text style={styles.stepDescription}>
+      <Text style={[styles.stepTitle, { color: colors.text }]}>Property</Text>
+      <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
         Using the property from this inspection.
       </Text>
       <PRGButton
@@ -700,6 +719,7 @@ function ChoosePropertyStep({
 }
 
 function LegacySkipScopeStep({ onSkip }: { onSkip: () => void }) {
+  const { colors } = useTheme();
   useEffect(() => {
     onSkip();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -707,8 +727,8 @@ function LegacySkipScopeStep({ onSkip }: { onSkip: () => void }) {
 
   return (
     <View>
-      <Text style={styles.stepTitle}>Preparing your walkthrough…</Text>
-      <Text style={styles.stepDescription}>
+      <Text style={[styles.stepTitle, { color: colors.text }]}>Preparing your walkthrough…</Text>
+      <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
         You’ll document one space at a time—no need to select every room up front.
       </Text>
     </View>
@@ -728,6 +748,7 @@ function CaptureOverviewStep({
   onContinue: (photoIds: string[]) => void;
   saving: boolean;
 }) {
+  const { colors } = useTheme();
   const { showToast } = useToast();
   const copy = getInspectionTypeCopy(inspection.inspection_type);
   const [photoIds, setPhotoIds] = useState<string[]>(payload.photo_ids || []);
@@ -757,13 +778,9 @@ function CaptureOverviewStep({
     const hasPermission = await requestPermissions();
     if (!hasPermission) return;
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.8,
-      preferredAssetRepresentationMode:
-        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-    });
+    const result = await ImagePicker.launchImageLibraryAsync(
+      mediaLibraryPickerOptions({ imagesOnly: true })
+    );
 
     if (!result.canceled && result.assets) {
       await uploadPhotos(result.assets);
@@ -828,52 +845,34 @@ function CaptureOverviewStep({
     setUploadStatus(statusList);
 
     try {
-      const newPhotoIds: string[] = [];
-      let failCount = 0;
-
-      for (let i = 0; i < assets.length; i++) {
-        const asset = assets[i];
-
-        try {
-          const processed = await processImageForUpload(asset);
-
-          const photo = await photosService.uploadAndCreatePhoto(
-            {
-              base64: processed.base64,
-              type: processed.mimeType,
-              name: processed.fileName,
-            },
-            {
-              property: property.id,
-              captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
-            }
-          );
-          newPhotoIds.push(photo.id);
-
-          setUploadStatus(prev =>
-            prev.map((status, idx) =>
-              idx === i ? { ...status, status: 'success' } : status
-            )
-          );
-        } catch (error) {
-          failCount += 1;
-          console.error('Error uploading photo:', error);
-          setUploadStatus(prev =>
-            prev.map((status, idx) =>
-              idx === i ? { ...status, status: 'error' } : status
-            )
-          );
+      const { successes, failCount, firstErrorMessage } = await uploadImagePickerAssetsBatch(
+        assets,
+        (asset) => ({
+          property: property.id,
+          captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
+        }),
+        {
+          onItemComplete: (result) => {
+            setUploadStatus((prev) =>
+              prev.map((status, idx) =>
+                idx === result.index
+                  ? { ...status, status: result.ok ? 'success' : 'error' }
+                  : status
+              )
+            );
+          },
         }
-      }
+      );
 
-      setPhotoIds(prev => [...prev, ...newPhotoIds]);
-      if (failCount === 0) {
-        showToast(`${newPhotoIds.length} photo(s) uploaded`, 'success');
-      } else if (newPhotoIds.length === 0) {
-        showToast('Failed to upload photos', 'error');
-      } else {
-        showToast(`${newPhotoIds.length} uploaded, ${failCount} failed`, 'error');
-      }
+      const newPhotoIds = successes.map((photo) => photo.id);
+      setPhotoIds((prev) => [...prev, ...newPhotoIds]);
+      const toast = formatBatchUploadToast(
+        newPhotoIds.length,
+        failCount,
+        'photo(s)',
+        firstErrorMessage
+      );
+      if (toast) showToast(toast.message, toast.type);
     } catch (error) {
       console.error('Upload error:', error);
       showToast('Failed to upload photos', 'error');
@@ -886,8 +885,8 @@ function CaptureOverviewStep({
 
   return (
     <View>
-      <Text style={styles.stepTitle}>Capture Overview Photos</Text>
-      <Text style={styles.stepDescription}>
+      <Text style={[styles.stepTitle, { color: colors.text }]}>Capture Overview Photos</Text>
+      <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
         {copy.overviewBody}
       </Text>
 
@@ -908,8 +907,8 @@ function CaptureOverviewStep({
       />
 
       {photoIds.length > 0 && (
-        <View style={styles.photoCountContainer}>
-          <Text style={styles.photoCountText}>
+        <View style={[styles.photoCountContainer, { backgroundColor: colors.card }]}>
+          <Text style={[styles.photoCountText, { color: colors.text }]}>
             {photoIds.length} photo{photoIds.length !== 1 ? 's' : ''} uploaded
           </Text>
         </View>
@@ -918,16 +917,19 @@ function CaptureOverviewStep({
       {uploadStatus.length > 0 && (
         <View style={styles.uploadList}>
           {uploadStatus.map((status, index) => (
-            <View key={index} style={styles.uploadItem}>
-              <Text style={styles.uploadFilename}>{status.filename}</Text>
+            <View
+              key={index}
+              style={[styles.uploadItem, { backgroundColor: colors.backgroundSecondary }]}
+            >
+              <Text style={[styles.uploadFilename, { color: colors.text }]}>{status.filename}</Text>
               {status.status === 'uploading' && (
-                <Text style={styles.uploadStatus}>Uploading...</Text>
+                <Text style={[styles.uploadStatus, { color: colors.textSecondary }]}>Uploading...</Text>
               )}
               {status.status === 'success' && (
-                <Text style={styles.successText}>✓ Uploaded</Text>
+                <Text style={[styles.successText, { color: colors.success }]}>✓ Uploaded</Text>
               )}
               {status.status === 'error' && (
-                <Text style={styles.errorText}>✗ Failed</Text>
+                <Text style={[styles.errorText, { color: colors.error }]}>✗ Failed</Text>
               )}
             </View>
           ))}
@@ -980,7 +982,7 @@ function ReviewStep({
   onContinue: (notes: string) => void;
   saving: boolean;
 }) {
-  const { colors: themeColors } = useTheme();
+  const { colors } = useTheme();
   const [notes, setNotes] = useState(payload.user_summary_notes || '');
   const copy = getInspectionTypeCopy(inspection.inspection_type);
 
@@ -994,39 +996,39 @@ function ReviewStep({
 
   return (
     <View>
-      <Text style={styles.stepTitle}>Review</Text>
-      <Text style={styles.stepDescription}>
+      <Text style={[styles.stepTitle, { color: colors.text }]}>Review</Text>
+      <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
         {copy.reviewBody}
       </Text>
-      <Text style={styles.reviewItem}>
+      <Text style={[styles.reviewItem, { color: colors.text }]}>
         Type: {getInspectionTypeLabel(inspection.inspection_type)}
       </Text>
-      <Text style={styles.reviewItem}>
-        Property: {property?.nickname || property?.address_free_text}
+      <Text style={[styles.reviewItem, { color: colors.text }]}>
+        Property: {property ? propertyDisplayName(property) : '—'}
       </Text>
-      <Text style={styles.reviewItem}>
+      <Text style={[styles.reviewItem, { color: colors.text }]}>
         Spaces: {counts.spaces_count}
       </Text>
-      <Text style={styles.reviewItem}>
+      <Text style={[styles.reviewItem, { color: colors.text }]}>
         Overview Photos: {counts.overview_photos_count}
       </Text>
-      <Text style={styles.reviewItem}>
+      <Text style={[styles.reviewItem, { color: colors.text }]}>
         Space Photos: {counts.space_photos_count}
       </Text>
-      <Text style={styles.reviewItem}>
+      <Text style={[styles.reviewItem, { color: colors.text }]}>
         Total Photos: {counts.total_photos_count}
       </Text>
-      <Text style={styles.reviewItem}>
+      <Text style={[styles.reviewItem, { color: colors.text }]}>
         Notes: {counts.notes_count}
         {notes.trim() ? ' (includes summary)' : ''}
       </Text>
       {spaces.length > 0 && (
-        <View style={styles.spaceReviewList}>
+        <View style={[styles.spaceReviewList, { backgroundColor: colors.backgroundSecondary }]}>
           {spaces.map((space) => {
             const spacePhotoCount = spacesData[space.id]?.photo_ids?.length || 0;
             const spaceNotes = spacesData[space.id]?.notes?.trim();
             return (
-              <Text key={space.id} style={styles.spaceReviewItem}>
+              <Text key={space.id} style={[styles.spaceReviewItem, { color: colors.text }]}>
                 {space.display_name}: {spacePhotoCount} photo
                 {spacePhotoCount !== 1 ? 's' : ''}
                 {spaceNotes ? ' · notes' : ''}
@@ -1044,7 +1046,7 @@ function ReviewStep({
         placeholder="Add any additional notes about this inspection..."
         style={styles.notesInput}
       />
-      <Text style={[styles.notesHint, { color: themeColors?.textTertiary || '#888' }]}>
+      <Text style={[styles.notesHint, { color: colors.textTertiary }]}>
         You can add more detailed notes on each photo and space — those are
         timestamped with who wrote them and can be edited later.
       </Text>
@@ -1068,11 +1070,12 @@ function CompleteStep({
   onComplete: () => void;
   saving: boolean;
 }) {
+  const { colors } = useTheme();
   const copy = getInspectionTypeCopy(inspection.inspection_type);
   return (
     <View>
-      <Text style={styles.stepTitle}>{copy.completeTitle}</Text>
-      <Text style={styles.stepDescription}>{copy.completeBody}</Text>
+      <Text style={[styles.stepTitle, { color: colors.text }]}>{copy.completeTitle}</Text>
+      <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>{copy.completeBody}</Text>
       <PRGButton
         title="View Report"
         onPress={onComplete}
@@ -1087,7 +1090,6 @@ function CompleteStep({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.gray[50],
   },
   loadingContainer: {
     flex: 1,
@@ -1102,25 +1104,20 @@ const styles = StyleSheet.create({
   },
   progressContainer: {
     padding: spacing.md,
-    backgroundColor: colors.light,
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray[200],
   },
   progressBar: {
     height: 8,
-    backgroundColor: colors.gray[200],
     borderRadius: 4,
     marginBottom: spacing.xs,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: colors.primary,
     borderRadius: 4,
   },
   progressText: {
     fontSize: typography.fontSize.sm,
-    color: colors.gray[600],
     textAlign: 'center',
   },
   content: {
@@ -1132,18 +1129,15 @@ const styles = StyleSheet.create({
   stepTitle: {
     fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold,
-    color: colors.dark,
     marginBottom: spacing.md,
   },
   stepDescription: {
     fontSize: typography.fontSize.base,
-    color: colors.gray[600],
     marginBottom: spacing.md,
     lineHeight: 24,
   },
   stepNote: {
     fontSize: typography.fontSize.sm,
-    color: colors.gray[500],
     fontStyle: 'italic',
     marginBottom: spacing.md,
   },
@@ -1198,23 +1192,19 @@ const styles = StyleSheet.create({
   },
   spaceItem: {
     padding: spacing.md,
-    backgroundColor: colors.light,
     borderRadius: 8,
     marginBottom: spacing.sm,
   },
   spaceName: {
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semibold,
-    color: colors.dark,
   },
   spaceNote: {
     fontSize: typography.fontSize.sm,
-    color: colors.gray[500],
     marginTop: spacing.xs,
   },
   reviewItem: {
     fontSize: typography.fontSize.base,
-    color: colors.dark,
     marginBottom: spacing.sm,
   },
   notesInput: {
@@ -1232,7 +1222,6 @@ const styles = StyleSheet.create({
   },
   photoCountContainer: {
     padding: spacing.md,
-    backgroundColor: colors.light,
     borderRadius: 8,
     marginTop: spacing.md,
     marginBottom: spacing.md,
@@ -1240,7 +1229,6 @@ const styles = StyleSheet.create({
   photoCountText: {
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.medium,
-    color: colors.dark,
     textAlign: 'center',
   },
   uploadList: {
@@ -1249,36 +1237,29 @@ const styles = StyleSheet.create({
   },
   uploadItem: {
     padding: spacing.sm,
-    backgroundColor: colors.gray[50],
     borderRadius: 8,
     marginBottom: spacing.xs,
   },
   uploadFilename: {
     fontSize: typography.fontSize.sm,
-    color: colors.dark,
     marginBottom: spacing.xs,
   },
   uploadStatus: {
     fontSize: typography.fontSize.xs,
-    color: colors.gray[600],
   },
   successText: {
     fontSize: typography.fontSize.sm,
-    color: colors.success,
   },
   errorText: {
     fontSize: typography.fontSize.sm,
-    color: colors.error,
   },
   spacePhotoItem: {
     padding: spacing.md,
-    backgroundColor: colors.light,
     borderRadius: 8,
     marginBottom: spacing.md,
   },
   spacePhotoCount: {
     fontSize: typography.fontSize.sm,
-    color: colors.gray[600],
     marginBottom: spacing.sm,
   },
   spaceUploadButton: {
@@ -1286,7 +1267,6 @@ const styles = StyleSheet.create({
   },
   uploadingText: {
     fontSize: typography.fontSize.sm,
-    color: colors.primary,
     fontStyle: 'italic',
     marginTop: spacing.xs,
   },
@@ -1294,13 +1274,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     marginBottom: spacing.md,
     padding: spacing.md,
-    backgroundColor: colors.gray[50],
     borderRadius: 8,
   },
   spaceReviewItem: {
     fontSize: typography.fontSize.sm,
-    color: colors.dark,
     marginBottom: spacing.xs,
   },
 });
-

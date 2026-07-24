@@ -51,7 +51,7 @@ export default function InspectionReadyGateScreen() {
       if (propertyId) {
         router.replace(`/(tabs)/properties/${propertyId}`);
       } else {
-        router.replace('/(tabs)/properties');
+        router.replace('/(tabs)/rents');
       }
     } catch (err: any) {
       showToast('Failed to update profile', 'error');

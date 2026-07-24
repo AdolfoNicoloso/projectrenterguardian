@@ -3,12 +3,64 @@ import * as FileSystem from 'expo-file-system';
 import type { ImagePickerAsset } from 'expo-image-picker';
 
 /**
- * Result of processing an image asset for upload.
+ * Result of processing an image/video asset for upload.
+ * Videos prefer `uri` (direct Storage upload). Images use `base64`.
  */
 export interface ProcessedImage {
-  base64: string;
+  base64?: string;
+  uri?: string;
   mimeType: string;
   fileName: string;
+  byteSize?: number;
+}
+
+/** Max video size for direct Storage upload (matches backend). */
+export const MAX_VIDEO_UPLOAD_BYTES = 200 * 1024 * 1024;
+
+const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|avi|mkv|3gp)$/i;
+
+/**
+ * DocumentPicker type filter.
+ * DO NOT REMOVE CODE — video uploads temporarily disabled; restore `video/*` to re-enable.
+ */
+export const PHOTO_DOCUMENT_PICKER_TYPES = [
+  'image/*',
+  // DO NOT REMOVE CODE
+  // 'video/*',
+] as const;
+
+export function isVideoMimeType(mimeType: string | null | undefined): boolean {
+  return (mimeType || '').toLowerCase().startsWith('video/');
+}
+
+export function isVideoAsset(asset: ImagePickerAsset): boolean {
+  if (asset.type === 'video') return true;
+  if (isVideoMimeType(asset.mimeType)) return true;
+  const name = `${asset.fileName || ''} ${asset.uri || ''}`;
+  return VIDEO_EXT_RE.test(name);
+}
+
+function guessVideoMime(asset: ImagePickerAsset): string {
+  const mime = (asset.mimeType || '').toLowerCase();
+  if (mime.startsWith('video/')) return mime;
+  const name = (asset.fileName || asset.uri || '').toLowerCase();
+  if (name.includes('.mov')) return 'video/quicktime';
+  if (name.includes('.webm')) return 'video/webm';
+  if (name.includes('.mkv')) return 'video/x-matroska';
+  if (name.includes('.avi')) return 'video/x-msvideo';
+  if (name.includes('.3gp')) return 'video/3gpp';
+  return 'video/mp4';
+}
+
+function defaultVideoFileName(asset: ImagePickerAsset, mimeType: string): string {
+  if (asset.fileName) return asset.fileName;
+  const ext =
+    mimeType.includes('quicktime') || mimeType.includes('mov')
+      ? 'mov'
+      : mimeType.includes('webm')
+        ? 'webm'
+        : 'mp4';
+  return `video-${Date.now()}.${ext}`;
 }
 
 // Dynamically import heic2any only on web (it's a browser-only library)
@@ -294,12 +346,48 @@ async function convertHeicToJpeg(
 }
 
 /**
- * Processes an image asset for upload.
- * Handles HEIC conversion on web and base64 conversion on all platforms.
- * @param asset - The image picker asset
- * @returns Processed image data (base64, mimeType, fileName)
+ * Processes an image or video asset for upload.
+ * Handles HEIC conversion on web for images; videos keep a local URI
+ * for direct-to-Storage upload (base64 through Cloud Functions is too small).
+ * @param asset - The image/video picker asset
+ * @returns Processed media data (base64 and/or uri, mimeType, fileName)
  */
 export async function processImageForUpload(asset: ImagePickerAsset): Promise<ProcessedImage> {
+  if (isVideoAsset(asset)) {
+    // DO NOT REMOVE CODE — video uploads temporarily disabled.
+    // Uncomment the block below (and remove this throw) to re-enable video processing.
+    throw new Error('Video uploads are temporarily disabled');
+    /*
+    const mimeType = guessVideoMime(asset);
+    const fileName = defaultVideoFileName(asset, mimeType);
+    let byteSize = typeof asset.fileSize === 'number' ? asset.fileSize : undefined;
+    if (byteSize == null && asset.uri && !asset.uri.startsWith('data:')) {
+      try {
+        const info = await FileSystem.getInfoAsync(asset.uri);
+        if (info.exists && typeof (info as { size?: number }).size === 'number') {
+          byteSize = (info as { size: number }).size;
+        }
+      } catch {
+        // size unknown — backend still accepts without size
+      }
+    }
+    if (byteSize != null && byteSize > MAX_VIDEO_UPLOAD_BYTES) {
+      throw new Error('Video exceeds 200 MB limit');
+    }
+    // Prefer URI so we never load multi‑MB videos into base64 JSON.
+    if (asset.uri) {
+      return {
+        uri: asset.uri,
+        mimeType,
+        fileName,
+        byteSize,
+        ...(asset.uri.startsWith('data:') ? { base64: asset.uri } : {}),
+      };
+    }
+    throw new Error('Video URI is missing');
+    */
+  }
+
   // On web, check if we need to convert HEIC to JPEG
   if (Platform.OS === 'web') {
     let isHeic = false;

@@ -33,36 +33,38 @@ export const lightColors = {
   background: colors.light,
   backgroundSecondary: colors.gray[50],
   backgroundTertiary: colors.gray[100],
-  
+
   // Text colors
   text: colors.dark,
   textSecondary: colors.gray[600],
   textTertiary: colors.gray[500],
   textInverse: colors.light,
-  
+
   // Border colors
   border: colors.gray[200],
   borderSecondary: colors.gray[300],
-  
+
   // Interactive colors
   primary: colors.primary,
   primaryLight: '#9D4EDD',
   primaryDark: '#5A00CC',
-  
+  /** Text/icons on primary-filled controls */
+  onPrimary: colors.light,
+
   // Semantic colors
   error: colors.error,
   success: colors.success,
   warning: colors.warning,
   info: colors.info,
-  
+
   // Overlay and shadow
   overlay: 'rgba(0, 0, 0, 0.5)',
   shadow: colors.dark,
-  
+
   // Card and surface
   card: colors.light,
   cardSecondary: colors.gray[50],
-  
+
   // Input colors
   inputBackground: colors.light,
   inputBorder: colors.gray[300],
@@ -71,50 +73,48 @@ export const lightColors = {
 
 /**
  * Dark theme color palette
- * Following iOS and Material Design dark mode guidelines
- * Brand dark background: #191414
+ *
+ * Warm charcoal family anchored to brand dark `#191414`.
+ * Surfaces step up clearly; text hierarchy stays readable without glare.
  */
 export const darkColors = {
-  // Background colors - using brand color #191414
+  // Canvas → grouped → pressed/hover
   background: '#191414',
-  backgroundSecondary: '#1F1A1A', // Slightly lifted for cards/surfaces
-  backgroundTertiary: '#241F1F',
-  
-  // Text colors - high contrast for readability
-  text: '#FFFFFF',
-  textSecondary: '#EBEBF5',
-  textTertiary: '#EBEBF599', // 60% opacity
-  textInverse: colors.dark,
-  
-  // Border colors - subtle but visible
-  border: '#38383A',
-  borderSecondary: '#48484A',
-  
-  // Interactive colors - slightly brighter primary in dark mode
-  primary: '#8B5FFF',
-  primaryLight: '#A57FFF',
-  primaryDark: '#6F00FF',
-  
-  // Semantic colors - adjusted for dark mode contrast
-  error: '#FF453A',
-  success: '#32D74B',
-  warning: '#FF9F0A',
-  info: '#0A84FF',
-  
-  // Overlay and shadow
-  overlay: 'rgba(0, 0, 0, 0.7)',
+  backgroundSecondary: '#221C1C',
+  backgroundTertiary: '#2C2525',
+
+  // Soft white primary; muted secondary/tertiary (not near-white)
+  text: '#F4F2F2',
+  textSecondary: '#A39C9C',
+  textTertiary: '#7A7373',
+  textInverse: '#191414',
+
+  // Hairline separators that read on warm dark surfaces
+  border: '#3A3333',
+  borderSecondary: '#4A4242',
+
+  // Brand purple lifted slightly for contrast on dark surfaces
+  primary: '#9B6DFF',
+  primaryLight: '#B794FF',
+  primaryDark: '#7A3DFF',
+  onPrimary: '#FFFFFF',
+
+  // Semantic colors tuned for dark contrast
+  error: '#FF6B63',
+  success: '#3DDC6A',
+  warning: '#FFB340',
+  info: '#5AA9FF',
+
+  overlay: 'rgba(0, 0, 0, 0.72)',
   shadow: '#000000',
-  
-  // Card and surface - elevated surfaces
-  card: '#1C1C1E',
-  cardSecondary: '#2C2C2E',
-  
-  // Input colors
-  inputBackground: '#2C2C2E',
-  inputBorder: '#48484A',
-  inputPlaceholder: '#8E8E93',
+
+  // Elevated surfaces (distinct from canvas)
+  card: '#241E1E',
+  cardSecondary: '#2C2525',
+
+  inputBackground: '#2C2525',
+  inputBorder: '#4A4242',
+  inputPlaceholder: '#8A8282',
 } as const;
 
 export type ThemeColors = typeof lightColors;
-
-

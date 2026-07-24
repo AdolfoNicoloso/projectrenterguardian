@@ -69,7 +69,7 @@ export default function OnboardingPropertyLinkScreen() {
     setSkipping(true);
     try {
       await appProfileService.updateAppProfile({ onboarding_completed: true });
-      router.replace('/(tabs)/properties');
+      router.replace('/(tabs)/rents');
     } catch (err: any) {
       showToast(err?.message || 'Failed to continue', 'error');
       setSkipping(false);

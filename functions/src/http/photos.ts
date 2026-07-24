@@ -7,6 +7,7 @@ import * as admin from "firebase-admin";
 import * as cms from "../firestore";
 import {
   FN_OPTS,
+  UPLOAD_FN_OPTS,
   Req,
   Res,
   authed,
@@ -85,7 +86,7 @@ export const getPhoto = onRequest(FN_OPTS, async (req, res) => {
   }
 });
 
-export const uploadFile = onRequest(FN_OPTS, async (req, res) => {
+export const uploadFile = onRequest(UPLOAD_FN_OPTS, async (req, res) => {
   const r = req as unknown as Req;
   const s = res as unknown as Res;
   if (handleCorsPreflight(r, s)) {
@@ -166,9 +167,23 @@ export const uploadFile = onRequest(FN_OPTS, async (req, res) => {
       return;
     }
 
-    const maxBytes = 20 * 1024 * 1024;
-    if (fileBuffer.length > maxBytes) {
-      s.status(400).json({error: "File exceeds 20 MB limit"});
+    const isVideo = mimeType.toLowerCase().startsWith("video/");
+    if (isVideo) {
+      s.status(400).json({
+        error:
+          "Videos must use createMediaUpload (direct Storage upload). " +
+          "Base64 upload is limited to images.",
+      });
+      return;
+    }
+
+    // HTTP body limit ~32MB; base64 expands ~4/3 — keep under 15MB raw.
+    if (fileBuffer.length > cms.MAX_BASE64_UPLOAD_BYTES) {
+      s.status(400).json({
+        error:
+          "File exceeds 15 MB limit for image upload. " +
+          "Use a smaller photo or compress before uploading.",
+      });
       return;
     }
 
@@ -181,6 +196,122 @@ export const uploadFile = onRequest(FN_OPTS, async (req, res) => {
     s.status(200).json({data: {id}});
   } catch (err: unknown) {
     console.error("[uploadFile]", getErrorMessage(err));
+    sendErr(s, r, err);
+  }
+});
+
+/**
+ * Start a direct-to-Storage upload (required for videos / large files).
+ * Returns a V4 signed PUT URL + media file id.
+ */
+export const createMediaUpload = onRequest(FN_OPTS, async (req, res) => {
+  const r = req as unknown as Req;
+  const s = res as unknown as Res;
+  if (handleCorsPreflight(r, s)) {
+    return;
+  }
+  setCorsHeaders(s, r);
+  try {
+    if (r.method !== "POST") {
+      s.status(405).json({error: "Method not allowed. Use POST."});
+      return;
+    }
+    const ctx = await authed(r, s);
+    if (!ctx) {
+      return;
+    }
+    const input = parseBody<{
+      name?: string;
+      type?: string;
+      propertyId?: string;
+      size?: number;
+    }>(r.body);
+    if (!input.name || !input.type) {
+      s.status(400).json({error: "Missing required fields: name, type"});
+      return;
+    }
+    if (input.propertyId) {
+      await cms.requirePropertyAccess(
+        ctx.appProfileId,
+        input.propertyId,
+        "edit"
+      );
+    }
+
+    const mimeType = String(input.type);
+    const isVideo = mimeType.toLowerCase().startsWith("video/");
+    const maxBytes = isVideo ?
+      cms.MAX_DIRECT_UPLOAD_BYTES :
+      cms.MAX_BASE64_UPLOAD_BYTES;
+    if (
+      typeof input.size === "number" &&
+      Number.isFinite(input.size) &&
+      input.size > maxBytes
+    ) {
+      s.status(400).json({
+        error: isVideo ?
+          "Video exceeds 200 MB limit" :
+          "File exceeds size limit",
+      });
+      return;
+    }
+
+    const session = await cms.createSignedUploadSession(
+      ctx.appProfileId,
+      input.name,
+      mimeType,
+      typeof input.size === "number" ? input.size : undefined
+    );
+    s.status(200).json({
+      data: {
+        fileId: session.fileId,
+        uploadUrl: session.uploadUrl,
+        contentType: session.contentType,
+      },
+    });
+  } catch (err: unknown) {
+    console.error("[createMediaUpload]", getErrorMessage(err));
+    sendErr(s, r, err);
+  }
+});
+
+/**
+ * Confirm a signed PUT finished and mark media_files ready.
+ */
+export const finalizeMediaUpload = onRequest(FN_OPTS, async (req, res) => {
+  const r = req as unknown as Req;
+  const s = res as unknown as Res;
+  if (handleCorsPreflight(r, s)) {
+    return;
+  }
+  setCorsHeaders(s, r);
+  try {
+    if (r.method !== "POST") {
+      s.status(405).json({error: "Method not allowed. Use POST."});
+      return;
+    }
+    const ctx = await authed(r, s);
+    if (!ctx) {
+      return;
+    }
+    const input = parseBody<{fileId?: string}>(r.body);
+    if (!input.fileId) {
+      s.status(400).json({error: "Missing fileId"});
+      return;
+    }
+    const ok = await cms.finalizeSignedUploadForProfile(
+      ctx.appProfileId,
+      input.fileId
+    );
+    if (!ok) {
+      s.status(404).json({
+        error: "Upload not found or file missing from Storage",
+      });
+      return;
+    }
+    s.status(200).json({ok: true, data: {fileId: input.fileId}});
+  } catch (err: unknown) {
+    console.error("[finalizeMediaUpload]", getErrorMessage(err));
     sendErr(s, r, err);
   }
 });

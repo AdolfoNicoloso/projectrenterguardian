@@ -1,9 +1,54 @@
-import { backendClient } from './backendClient';
+import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import { backendClient, BackendError } from './backendClient';
 import type { Photo } from '../types';
+import {
+  isVideoMimeType,
+  MAX_VIDEO_UPLOAD_BYTES,
+} from './photoUploadService';
+
+export type UploadableFile = {
+  /** Data URI or raw base64 (images / small files). */
+  base64?: string;
+  /** Local file URI for direct Storage upload (videos). */
+  uri?: string;
+  type: string;
+  name: string;
+  propertyId?: string;
+  byteSize?: number;
+};
+
+function estimateBytesFromBase64(base64: string): number {
+  const payload = base64.includes(',') ? base64.split(',')[1] : base64;
+  return Math.floor((payload.length * 3) / 4);
+}
+
+async function blobFromUploadable(file: UploadableFile): Promise<Blob> {
+  if (file.uri && !file.uri.startsWith('data:')) {
+    const response = await fetch(file.uri);
+    if (!response.ok) {
+      throw new Error('Failed to read media file for upload');
+    }
+    return await response.blob();
+  }
+  if (file.base64) {
+    const dataUri = file.base64.startsWith('data:')
+      ? file.base64
+      : `data:${file.type};base64,${file.base64}`;
+    const res = await fetch(dataUri);
+    return await res.blob();
+  }
+  if (file.uri?.startsWith('data:')) {
+    const res = await fetch(file.uri);
+    return await res.blob();
+  }
+  throw new Error('Missing file data for upload');
+}
 
 /**
  * Domain service for photo operations.
  * Calls Firebase Cloud Functions only (Firestore/Storage on the server).
+ * Videos use signed direct-to-GCS uploads; images use uploadFile base64.
  */
 class PhotosService {
   /**
@@ -80,16 +125,9 @@ class PhotosService {
   }
 
   /**
-   * Upload a file via Cloud Function; returns a Storage media id.
-   * When propertyId is set, the server requires edit access on that property.
-   * @param {object} file File data.
-   * @param {string} file.base64 Base64 encoded file (data URI format).
-   * @param {string} file.type MIME type.
-   * @param {string} file.name File name.
-   * @param {string} [file.propertyId] Property id for edit-gated uploads.
-   * @return {Promise<string>} The media file id.
+   * Upload via Cloud Function base64 body (images / small files only).
    */
-  async uploadFile(file: {
+  async uploadFileBase64(file: {
     base64: string;
     type: string;
     name: string;
@@ -103,6 +141,118 @@ class PhotosService {
       }
     );
     return response.data.id;
+  }
+
+  /**
+   * Direct-to-Storage upload using a short-lived signed PUT URL.
+   * Required for videos (Cloud Functions reject video base64 bodies).
+   */
+  async uploadFileDirect(file: UploadableFile): Promise<string> {
+    const size =
+      file.byteSize ??
+      (file.base64 ? estimateBytesFromBase64(file.base64) : undefined);
+
+    if (size != null && size > MAX_VIDEO_UPLOAD_BYTES) {
+      throw new BackendError(
+        isVideoMimeType(file.type)
+          ? 'Video exceeds 200 MB limit'
+          : 'File exceeds size limit',
+        400
+      );
+    }
+
+    const session = await backendClient.call<{
+      data: { fileId: string; uploadUrl: string; contentType: string };
+    }>('createMediaUpload', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: file.name,
+        type: file.type,
+        propertyId: file.propertyId,
+        size,
+      }),
+    });
+
+    const { fileId, uploadUrl, contentType } = session.data;
+
+    try {
+      const canNativeUpload =
+        Platform.OS !== 'web' &&
+        !!file.uri &&
+        !file.uri.startsWith('data:') &&
+        !file.uri.startsWith('blob:');
+
+      if (canNativeUpload && file.uri) {
+        const result = await FileSystem.uploadAsync(uploadUrl, file.uri, {
+          httpMethod: 'PUT',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+          headers: {
+            'Content-Type': contentType,
+          },
+        });
+        if (result.status < 200 || result.status >= 300) {
+          throw new BackendError(
+            `Storage upload failed (${result.status})`,
+            result.status
+          );
+        }
+      } else {
+        const blob = await blobFromUploadable(file);
+        const putRes = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': contentType,
+          },
+          body: blob,
+        });
+        if (!putRes.ok) {
+          throw new BackendError(
+            `Storage upload failed (${putRes.status})`,
+            putRes.status
+          );
+        }
+      }
+
+      await backendClient.call<{ ok: boolean }>('finalizeMediaUpload', {
+        method: 'POST',
+        body: JSON.stringify({ fileId }),
+      });
+      return fileId;
+    } catch (err) {
+      try {
+        await this.deleteUploadedFile(fileId);
+      } catch (cleanupErr) {
+        console.warn('[photosService] direct upload cleanup failed:', cleanupErr);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Upload a file; chooses direct Storage for videos, base64 function for images.
+   */
+  async uploadFile(file: UploadableFile): Promise<string> {
+    const isVideo = isVideoMimeType(file.type);
+    if (isVideo) {
+      // DO NOT REMOVE CODE — video uploads temporarily disabled.
+      // Re-enable by removing this throw and restoring the direct-upload branch below.
+      throw new Error('Video uploads are temporarily disabled');
+      // DO NOT REMOVE CODE
+      // return this.uploadFileDirect(file);
+    }
+    // DO NOT REMOVE CODE — direct Storage path for large / URI-only files (used by videos):
+    // if (file.uri && !file.base64) {
+    //   return this.uploadFileDirect(file);
+    // }
+    if (!file.base64) {
+      throw new Error('Missing base64 for image upload');
+    }
+    return this.uploadFileBase64({
+      base64: file.base64,
+      type: file.type,
+      name: file.name,
+      propertyId: file.propertyId,
+    });
   }
 
   /**
@@ -122,7 +272,7 @@ class PhotosService {
    * successful upload, best-effort delete the orphaned media file.
    */
   async uploadAndCreatePhoto(
-    file: { base64: string; type: string; name: string },
+    file: UploadableFile,
     photoData: Partial<Photo> & { property: string }
   ): Promise<Photo> {
     const fileId = await this.uploadFile({

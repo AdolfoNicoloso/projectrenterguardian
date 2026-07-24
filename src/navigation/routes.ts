@@ -11,13 +11,24 @@ export const Routes = {
     SIGNUP: '/(auth)/signup',
     FORGOT_PASSWORD: '/(auth)/forgot-password',
   },
+
+  // Primary hub tabs (split from former Home)
+  RENTS: {
+    LIST: '/(tabs)/rents',
+  },
+  TOURS: {
+    LIST: '/(tabs)/tours',
+  },
   
-  // Properties routes
+  // Properties routes (create / detail stack; list redirects to Rents)
   PROPERTIES: {
-    LIST: '/(tabs)/properties',
+    /** @deprecated Prefer Routes.RENTS.LIST or Routes.TOURS.LIST */
+    LIST: '/(tabs)/rents',
     CREATE: '/(tabs)/properties/status-intent',
     TOURS_CALENDAR: '/(tabs)/properties/tours-calendar',
     DETAIL: (id: string) => `/(tabs)/properties/${id}`,
+    /** Post-create invite step (property already exists). */
+    INVITE_COLLABORATORS: '/(tabs)/properties/invite-collaborators',
     PHOTOS: {
       UPLOAD: (propertyId: string, spaceId?: string) => 
         spaceId 
@@ -63,5 +74,13 @@ export const Routes = {
   
   // Profile route
   PROFILE: '/(tabs)/profile',
+
+  /** In-app legal documents (Privacy, Terms, notices). */
+  LEGAL: {
+    DOC: (doc: 'privacy' | 'terms' | 'notices') => `/legal/${doc}`,
+  },
+
+  /** In-app notifications inbox (hidden tab). */
+  NOTIFICATIONS: '/(tabs)/notifications',
 } as const;
 

@@ -29,6 +29,9 @@ export default function NicknameScreen() {
     listing_url?: string;
     status?: string;
     tour_scheduled_at?: string;
+    leaseStartISO?: string;
+    leaseEndISO?: string;
+    leaseTerm?: string;
   }>();
   const isTouring = params.status === 'touring';
   const { showToast } = useToast();
@@ -51,7 +54,7 @@ export default function NicknameScreen() {
   });
 
   const leaveWithoutCreating = () => {
-    router.replace(Routes.PROPERTIES.LIST);
+    router.replace(Routes.RENTS.LIST);
   };
 
   const handleCancel = () => {
@@ -81,6 +84,20 @@ export default function NicknameScreen() {
         typeof params.tour_scheduled_at === 'string' && params.tour_scheduled_at.trim()
           ? params.tour_scheduled_at.trim()
           : undefined;
+      const leaseStart =
+        typeof params.leaseStartISO === 'string' && params.leaseStartISO.trim()
+          ? params.leaseStartISO.trim()
+          : undefined;
+      const leaseEnd =
+        typeof params.leaseEndISO === 'string' && params.leaseEndISO.trim()
+          ? params.leaseEndISO.trim()
+          : undefined;
+      const leaseTermRaw =
+        typeof params.leaseTerm === 'string' && params.leaseTerm.trim()
+          ? Number(params.leaseTerm)
+          : NaN;
+      const leaseTerm = Number.isFinite(leaseTermRaw) ? leaseTermRaw : undefined;
+
       const property = await propertiesService.createProperty({
         address_free_text: addressFreeText,
         nickname: nickname || undefined,
@@ -91,14 +108,22 @@ export default function NicknameScreen() {
         zip: parseInt(params.zip, 10),
         listing_url: listingUrl || undefined,
         status: isTouring ? 'touring' : 'active',
+        ...(leaseStart ? { lease_start_date: leaseStart } : {}),
+        ...(leaseEnd ? { lease_end_date: leaseEnd } : {}),
+        ...(leaseTerm != null ? { lease_term: leaseTerm } : {}),
         ...(isTouring && tourScheduledAt
           ? { tour_scheduled_at: tourScheduledAt }
           : {}),
       });
 
       showToast(isTouring ? 'Touring property added' : 'Property created', 'success');
-      router.replace(Routes.PROPERTIES.LIST);
-      router.push(Routes.PROPERTIES.DETAIL(property.id));
+      router.replace({
+        pathname: Routes.PROPERTIES.INVITE_COLLABORATORS,
+        params: {
+          propertyId: property.id,
+          status: isTouring ? 'touring' : 'active',
+        },
+      });
     } catch (err: any) {
       setError(err.message || 'Failed to create property');
       showToast('Failed to create property', 'error');
@@ -139,7 +164,7 @@ export default function NicknameScreen() {
               Name this place
             </Text>
             <Text style={[styles.helper, { color: colors.textSecondary }]}>
-              Optional. Cancel exits without creating a property.
+              Leave blank to use the full address. Cancel exits without creating a property.
             </Text>
 
             {error ? (

@@ -21,7 +21,7 @@ export interface CreatePropertyInput {
   /** Optional listing / property link (http/https URL). */
   listing_url?: string;
   /** Defaults to active. Use touring for places under consideration. */
-  status?: 'draft' | 'touring' | 'active' | 'archived';
+  status?: 'draft' | 'touring' | 'applied' | 'active' | 'archived';
 }
 
 /**
@@ -86,6 +86,7 @@ class PropertiesService {
     id: string,
     updates: Partial<Property> & {
       lease_term?: number | null;
+      lease_end_date?: string | null;
       state_code?: string | null;
       listing_url?: string | null;
       tour_scheduled_at?: string | null;

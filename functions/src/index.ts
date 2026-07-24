@@ -45,6 +45,8 @@ export {
   getPhotos,
   getPhoto,
   uploadFile,
+  createMediaUpload,
+  finalizeMediaUpload,
   deleteUploadedFile,
   createPhoto,
   updatePhoto,
@@ -80,6 +82,11 @@ export {
   revokePropertyMember,
   revokePropertyInvite,
 } from "./http/sharing";
+
+export {
+  listMyNotifications,
+  markNotificationRead,
+} from "./http/notifications";
 
 export {
   processTourReminders,

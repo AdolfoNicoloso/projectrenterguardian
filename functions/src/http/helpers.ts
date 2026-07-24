@@ -7,7 +7,19 @@ import * as admin from "firebase-admin";
 import * as cms from "../firestore";
 
 export const REGION = "us-central1";
+/** Default options for most HTTPS handlers. */
 export const FN_OPTS = {region: REGION, cors: true as const};
+/**
+ * Heavier options for base64 media uploads (still capped ~15–20MB).
+ * Videos should use createMediaUpload + signed PUT instead.
+ */
+export const UPLOAD_FN_OPTS = {
+  region: REGION,
+  cors: true as const,
+  memory: "1GiB" as const,
+  timeoutSeconds: 120,
+  concurrency: 20,
+};
 
 export type Res = {
   set: (name: string, value: string) => void;
@@ -110,14 +122,17 @@ export async function resolveProfile(
     name: displayNameFromToken(decoded),
     phone,
   });
-  // Best-effort claim of pending invites matching email/phone.
+  // Best-effort: pending invites → in-app notifications (no auto-accept).
   try {
-    await cms.claimPendingInvitesForProfile(appProfileId, {
+    await cms.notifyPendingInvitesForProfile(appProfileId, {
       email: decoded.email ?? null,
       phone,
     });
   } catch (err: unknown) {
-    console.warn("[resolveProfile] claim invites failed", getErrorMessage(err));
+    console.warn(
+      "[resolveProfile] notify pending invites failed",
+      getErrorMessage(err)
+    );
   }
   return appProfileId;
 }

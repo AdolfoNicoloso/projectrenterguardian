@@ -11,7 +11,7 @@ import { appProfileService } from '../services/appProfileService';
  *    - If name is missing/empty → OnboardingNameScreen
  *    - Else → Intent → property create (touring or renting)
  *    (Preferred language step is temporarily disabled.)
- * 3. Else → HomeScreen (Properties)
+ * 3. Else → Rents hub (Tours is a sibling tab)
  */
 export async function resolvePostAuthRoute(): Promise<void> {
   try {
@@ -42,11 +42,11 @@ export async function resolvePostAuthRoute(): Promise<void> {
       return;
     }
 
-    // Onboarding completed → go to home (properties)
-    router.replace('/(tabs)/properties');
+    // Onboarding completed → Rents hub (Tours is a sibling tab)
+    router.replace('/(tabs)/rents');
   } catch (error) {
     console.error('Error resolving post-auth route:', error);
-    // On error, default to properties screen (safe fallback)
-    router.replace('/(tabs)/properties');
+    // On error, default to Rents (safe fallback)
+    router.replace('/(tabs)/rents');
   }
 }

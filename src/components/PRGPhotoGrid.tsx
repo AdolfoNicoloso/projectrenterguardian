@@ -1,7 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Image, TouchableOpacity, StyleSheet, Text, Modal, Dimensions, Animated } from 'react-native';
+import {
+  View,
+  Image,
+  TouchableOpacity,
+  StyleSheet,
+  Text,
+  Modal,
+  Dimensions,
+  Animated,
+  ViewStyle,
+} from 'react-native';
 import { spacing, typography } from '../theme';
 import { useTheme } from '../theme/useTheme';
+import { useDesktopLayout } from '../hooks/useDesktopLayout';
 import type { Photo } from '../types';
 import { getAuthenticatedCmsFileUrl } from '../utils/fileUrl';
 
@@ -16,15 +27,24 @@ interface PRGPhotoGridProps {
 }
 
 // Component to handle async URL loading for a single photo
-const PhotoImage: React.FC<{ photo: Photo; isSelected: boolean; onPress: () => void; onLongPress: () => void; showSelection: boolean }> = ({
+const PhotoImage: React.FC<{
+  photo: Photo;
+  isSelected: boolean;
+  onPress: () => void;
+  onLongPress: () => void;
+  showSelection: boolean;
+  containerStyle?: ViewStyle;
+}> = ({
   photo,
   isSelected,
   onPress,
   onLongPress,
   showSelection,
+  containerStyle,
 }) => {
   const { colors } = useTheme();
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [showMediaFallback, setShowMediaFallback] = useState(false);
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -51,9 +71,9 @@ const PhotoImage: React.FC<{ photo: Photo; isSelected: boolean; onPress: () => v
             }
           }, 1000 * retryCount);
         } else if (!cancelled) {
-          // Final fallback - use placeholder
-          console.warn('[PhotoImage] All retries failed, using placeholder');
-          setImageUri(`https://via.placeholder.com/400?text=Error+Loading`);
+          // Final fallback — treat as non-image media (e.g. video)
+          console.warn('[PhotoImage] All retries failed, using media placeholder');
+          setShowMediaFallback(true);
         }
       }
     };
@@ -83,10 +103,10 @@ const PhotoImage: React.FC<{ photo: Photo; isSelected: boolean; onPress: () => v
     }).start();
   };
 
-  if (!imageUri) {
+  if (!imageUri || showMediaFallback) {
     return (
       <TouchableOpacity
-        style={styles.photoContainer}
+        style={[styles.photoContainer, containerStyle]}
         onPress={onPress}
         onLongPress={onLongPress}
         onPressIn={handlePressIn}
@@ -99,15 +119,61 @@ const PhotoImage: React.FC<{ photo: Photo; isSelected: boolean; onPress: () => v
             { transform: [{ scale: scaleAnim }] },
           ]}
         >
-          <View style={[styles.photo, styles.photoLoading, { backgroundColor: colors.border }]} />
+          {showMediaFallback ? (
+            <View
+              style={[
+                styles.photo,
+                styles.videoPlaceholder,
+                { backgroundColor: colors.borderSecondary },
+              ]}
+            >
+              <Text
+                style={[styles.videoPlaceholderPlay, { color: colors.onPrimary }]}
+              >
+                ▶
+              </Text>
+              <Text
+                style={[styles.videoPlaceholderLabel, { color: colors.onPrimary }]}
+              >
+                Video
+              </Text>
+            </View>
+          ) : (
+            <View
+              style={[
+                styles.photo,
+                styles.photoLoading,
+                { backgroundColor: colors.border },
+              ]}
+            />
+          )}
         </Animated.View>
+        {showSelection ? (
+          <View
+            style={[
+              styles.checkbox,
+              { borderColor: colors.onPrimary },
+              isSelected && styles.checkboxSelected,
+              isSelected && {
+                backgroundColor: colors.primary,
+                borderColor: colors.primary,
+              },
+            ]}
+          >
+            {isSelected ? (
+              <View
+                style={[styles.checkmark, { backgroundColor: colors.onPrimary }]}
+              />
+            ) : null}
+          </View>
+        ) : null}
       </TouchableOpacity>
     );
   }
 
   return (
     <TouchableOpacity
-      style={styles.photoContainer}
+      style={[styles.photoContainer, containerStyle]}
       onPress={onPress}
       onLongPress={onLongPress}
       onPressIn={handlePressIn}
@@ -132,9 +198,15 @@ const PhotoImage: React.FC<{ photo: Photo; isSelected: boolean; onPress: () => v
             const errorMessage = typeof errorDetails === 'string' ? errorDetails : String(errorDetails);
             
             // Check if it's a decoding error (corrupted/unsupported format)
-            if (errorMessage.includes('decoding') || errorMessage.includes('decode')) {
-              console.warn(`[PhotoImage] Image decode error for photo ${photo.id}: ${errorMessage}`);
-              // Don't try to reload - decoding errors mean the file itself is the problem
+            if (
+              errorMessage.includes('decoding') ||
+              errorMessage.includes('decode') ||
+              errorMessage.includes('format')
+            ) {
+              console.warn(
+                `[PhotoImage] Image decode error for photo ${photo.id}: ${errorMessage}`
+              );
+              setShowMediaFallback(true);
               return;
             }
             
@@ -149,11 +221,14 @@ const PhotoImage: React.FC<{ photo: Photo; isSelected: boolean; onPress: () => v
                     }
                   })
                   .catch(() => {
-                    // Silently fail - we already showed the error
+                    setShowMediaFallback(true);
                   });
+              } else {
+                setShowMediaFallback(true);
               }
             } else {
               console.warn(`[PhotoImage] Image load error for photo ${photo.id}: ${errorMessage}`);
+              setShowMediaFallback(true);
             }
           }}
           onLoad={() => {
@@ -164,11 +239,11 @@ const PhotoImage: React.FC<{ photo: Photo; isSelected: boolean; onPress: () => v
       {showSelection && (
         <View style={[
           styles.checkbox,
-          { borderColor: colors.textInverse },
+          { borderColor: colors.onPrimary },
           isSelected && styles.checkboxSelected,
           isSelected && { backgroundColor: colors.primary, borderColor: colors.primary },
         ]}>
-          {isSelected && <View style={[styles.checkmark, { backgroundColor: colors.textInverse }]} />}
+          {isSelected && <View style={[styles.checkmark, { backgroundColor: colors.onPrimary }]} />}
         </View>
       )}
     </TouchableOpacity>
@@ -184,8 +259,11 @@ export const PRGPhotoGrid: React.FC<PRGPhotoGridProps> = ({
   enablePreviewOnLongPress = false,
 }) => {
   const { colors } = useTheme();
+  const isDesktop = useDesktopLayout();
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
+  // Mobile: 3 columns; desktop web: 5 columns for denser browsing.
+  const photoWidthStyle: ViewStyle = { width: isDesktop ? '20%' : '33.33%' };
 
   useEffect(() => {
     if (previewPhoto?.file) {
@@ -239,6 +317,7 @@ export const PRGPhotoGrid: React.FC<PRGPhotoGridProps> = ({
               onPress={() => onPhotoPress(photo)}
               onLongPress={() => handleLongPress(photo)}
               showSelection={showSelection}
+              containerStyle={photoWidthStyle}
             />
           );
         })}
@@ -297,6 +376,21 @@ const styles = StyleSheet.create({
   },
   photoLoading: {
     // Background color applied via inline style
+  },
+  videoPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  videoPlaceholderPlay: {
+    fontSize: 22,
+    fontWeight: typography.fontWeight.bold,
+    fontFamily: typography.fontFamily.bold,
+  },
+  videoPlaceholderLabel: {
+    fontSize: typography.fontSize.xs,
+    fontFamily: typography.fontFamily.medium,
+    fontWeight: typography.fontWeight.medium,
   },
   checkbox: {
     position: 'absolute',

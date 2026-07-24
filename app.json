@@ -20,7 +20,8 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Renter Guardian uses the camera to capture photos of your rental for move-in documentation.",
-        "NSPhotoLibraryUsageDescription": "Renter Guardian needs access to your photo library so you can add existing photos to your property records.",
+        "NSMicrophoneUsageDescription": "Renter Guardian needs microphone access when recording videos for your rental documentation.",
+        "NSPhotoLibraryUsageDescription": "Renter Guardian needs access to your photo library so you can add existing photos and videos to your property records.",
         "NSPhotoLibraryAddUsageDescription": "Renter Guardian may save inspection reports and photos you choose to export."
       }
     },
@@ -33,6 +34,7 @@
       "permissions": [
         "CAMERA",
         "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE"
       ]
@@ -48,8 +50,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Renter Guardian to access your photos so you can document your rental.",
-          "cameraPermission": "Allow Renter Guardian to use the camera to capture condition photos."
+          "photosPermission": "Allow Renter Guardian to access your photos and videos so you can document your rental.",
+          "cameraPermission": "Allow Renter Guardian to use the camera to capture condition photos.",
+          "microphonePermission": "Allow Renter Guardian to use the microphone when recording videos."
         }
       ]
     ],

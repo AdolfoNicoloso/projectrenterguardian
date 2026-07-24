@@ -74,11 +74,16 @@ export default function OnboardingNicknameScreen() {
           // Non-fatal; tour-ready / Home can still proceed
         }
         showToast('Touring property added', 'success');
-        router.replace(`/onboarding/tour-ready?propertyId=${property.id}`);
       } else {
         showToast('Property created', 'success');
-        router.replace(`/onboarding/inspection-ready?propertyId=${property.id}`);
       }
+      router.replace({
+        pathname: '/onboarding/invite-collaborators',
+        params: {
+          propertyId: property.id,
+          status: isTouring ? 'touring' : 'active',
+        },
+      });
     } catch (err: any) {
       setError(err.message || 'Failed to create property');
       showToast('Failed to create property', 'error');
@@ -106,8 +111,8 @@ export default function OnboardingNicknameScreen() {
           </Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             {isTouring
-              ? 'A short nickname helps when you’re touring several rentals.'
-              : 'Optional. You can change it later.'}
+              ? 'Leave blank to use the full address. A short nickname helps when you’re touring several rentals.'
+              : 'Leave blank to use the full address. You can change it later.'}
           </Text>
 
           {error ? <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text> : null}

@@ -20,7 +20,7 @@ export default function MoveInReadyScreen() {
     } catch {
       // ignore
     }
-    router.replace('/(tabs)/properties');
+    router.replace('/(tabs)/rents');
   };
 
   const startMoveIn = (spaceWalk: 'existing' | 'pick') => {

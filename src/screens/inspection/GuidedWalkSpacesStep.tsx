@@ -4,12 +4,15 @@ import * as ImagePicker from 'expo-image-picker';
 import type { ImagePickerAsset } from 'expo-image-picker';
 import { PRGButton, PRGInput, PhotoCaptureNotesSheet, useToast } from '../../components';
 import { spacesService } from '../../services/spacesService';
-import { photosService } from '../../services/photosService';
-import { processImageForUpload } from '../../services/photoUploadService';
+import {
+  formatBatchUploadToast,
+  mediaLibraryPickerOptions,
+  uploadImagePickerAssetsBatch,
+} from '../../services/mediaBatchUpload';
 import { SPACE_TYPES } from '../../constants/spaceTypes';
 import { getInspectionTypeCopy } from '../../constants/inspectionTypes';
 import { capturedAtFromExif } from '../../utils/cmsDateTime';
-import { spacing, typography, colors } from '../../theme';
+import { spacing, typography } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 import type { Inspection, Property, Space } from '../../types';
 
@@ -53,7 +56,7 @@ export function GuidedWalkSpacesStep({
   onFinish: (spaceData: SpacesData, spaceIdsInScope: string[]) => void;
   saving: boolean;
 }) {
-  const { colors: themeColors } = useTheme();
+  const { colors } = useTheme();
   const { showToast } = useToast();
   const copy = getInspectionTypeCopy(inspection.inspection_type);
   const moveOut = isMoveOut(inspection.inspection_type);
@@ -213,33 +216,20 @@ export function GuidedWalkSpacesStep({
   ) => {
     setUploading(true);
     try {
-      const newPhotoIds: string[] = [];
-      let failCount = 0;
-      for (let i = 0; i < assets.length; i++) {
-        const asset = assets[i];
-        try {
-          const processed = await processImageForUpload(asset);
-          const note = notesByIndex?.[i]?.trim();
-          const photo = await photosService.uploadAndCreatePhoto(
-            {
-              base64: processed.base64,
-              type: processed.mimeType,
-              name: processed.fileName,
-            },
-            {
-              property: propertyId,
-              space: space.id,
-              assignment_status: 'confirmed' as const,
-              notes: note || undefined,
-              captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
-            }
-          );
-          newPhotoIds.push(photo.id);
-        } catch (error) {
-          failCount += 1;
-          console.error('Error uploading photo:', error);
+      const { successes, failCount, firstErrorMessage } = await uploadImagePickerAssetsBatch(
+        assets,
+        (asset, index) => {
+          const note = notesByIndex?.[index]?.trim();
+          return {
+            property: propertyId,
+            space: space.id,
+            assignment_status: 'confirmed' as const,
+            notes: note || undefined,
+            captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
+          };
         }
-      }
+      );
+      const newPhotoIds = successes.map((photo) => photo.id);
 
       const nextData: SpacesData = {
         ...spacesData,
@@ -251,14 +241,18 @@ export function GuidedWalkSpacesStep({
       setSpacesData(nextData);
       await persistWalk({ spaces_data: nextData });
       if (failCount === 0 && newPhotoIds.length > 0) {
-        showToast(`${newPhotoIds.length} photo(s) added to ${space.display_name}`, 'success');
-      } else if (newPhotoIds.length === 0 && failCount > 0) {
-        showToast('Failed to upload photos', 'error');
-      } else if (newPhotoIds.length > 0 && failCount > 0) {
         showToast(
-          `${newPhotoIds.length} uploaded, ${failCount} failed`,
-          'error'
+          `${newPhotoIds.length} photo(s) added to ${space.display_name}`,
+          'success'
         );
+      } else {
+        const toast = formatBatchUploadToast(
+          newPhotoIds.length,
+          failCount,
+          'photo(s)',
+          firstErrorMessage
+        );
+        if (toast) showToast(toast.message, toast.type);
       }
     } catch (error) {
       console.error('Upload error:', error);
@@ -272,13 +266,9 @@ export function GuidedWalkSpacesStep({
     if (!property || !currentSpace) return;
     const ok = await requestLibraryPermission();
     if (!ok) return;
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.8,
-      preferredAssetRepresentationMode:
-        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-    });
+    const result = await ImagePicker.launchImageLibraryAsync(
+      mediaLibraryPickerOptions({ imagesOnly: true })
+    );
     if (!result.canceled && result.assets) {
       await uploadPhotosForSpace(currentSpace, property.id, result.assets);
     }
@@ -347,9 +337,9 @@ export function GuidedWalkSpacesStep({
     const photoCount = spacesData[currentSpace.id]?.photo_ids?.length || 0;
     return (
       <View>
-        <Text style={styles.stepTitle}>{currentSpace.display_name}</Text>
-        <Text style={styles.stepDescription}>{copy.spacesBody}</Text>
-        <Text style={[styles.progressNote, { color: themeColors.textSecondary }]}>
+        <Text style={[styles.stepTitle, { color: colors.text }]}>{currentSpace.display_name}</Text>
+        <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>{copy.spacesBody}</Text>
+        <Text style={[styles.progressNote, { color: colors.textSecondary }]}>
           {completedIds.length} space{completedIds.length === 1 ? '' : 's'} done · {photoCount}{' '}
           photo{photoCount === 1 ? '' : 's'} here
         </Text>
@@ -372,11 +362,11 @@ export function GuidedWalkSpacesStep({
             />
           </>
         ) : (
-          <Text style={styles.stepNote}>Property not loaded</Text>
+          <Text style={[styles.stepNote, { color: colors.textSecondary }]}>Property not loaded</Text>
         )}
 
         {uploading ? (
-          <Text style={[styles.uploadingText, { color: themeColors.primary }]}>Uploading…</Text>
+          <Text style={[styles.uploadingText, { color: colors.primary }]}>Uploading…</Text>
         ) : null}
 
         <PRGButton
@@ -411,8 +401,8 @@ export function GuidedWalkSpacesStep({
     const nextExisting = remainingExisting[0];
     return (
       <View>
-        <Text style={styles.stepTitle}>What’s next?</Text>
-        <Text style={styles.stepDescription}>
+        <Text style={[styles.stepTitle, { color: colors.text }]}>What’s next?</Text>
+        <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
           {completedIds.length} space{completedIds.length === 1 ? '' : 's'} documented.
           {remainingExisting.length > 0
             ? ` ${remainingExisting.length} existing space${remainingExisting.length === 1 ? '' : 's'} still available.`
@@ -466,12 +456,12 @@ export function GuidedWalkSpacesStep({
   // phase === 'pick'
   return (
     <View>
-      <Text style={styles.stepTitle}>{pickTitle}</Text>
-      <Text style={styles.stepDescription}>{pickBody}</Text>
+      <Text style={[styles.stepTitle, { color: colors.text }]}>{pickTitle}</Text>
+      <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>{pickBody}</Text>
 
       {remainingExisting.length > 0 && !showAddForm ? (
         <View style={styles.listBlock}>
-          <Text style={[styles.sectionLabel, { color: themeColors.textSecondary }]}>
+          <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
             Existing spaces
           </Text>
           {remainingExisting.map((space) => (
@@ -491,7 +481,7 @@ export function GuidedWalkSpacesStep({
         <View
           style={[
             styles.addSpaceCard,
-            { borderColor: themeColors.border, backgroundColor: themeColors.card },
+            { borderColor: colors.border, backgroundColor: colors.card },
           ]}
         >
           {!showAddForm ? (
@@ -509,9 +499,9 @@ export function GuidedWalkSpacesStep({
             />
           ) : (
             <View>
-              <Text style={[styles.addSpaceTitle, { color: themeColors.text }]}>New space</Text>
+              <Text style={[styles.addSpaceTitle, { color: colors.text }]}>New space</Text>
               {formError ? (
-                <Text style={[styles.inlineError, { color: themeColors.error }]}>{formError}</Text>
+                <Text style={[styles.inlineError, { color: colors.error }]}>{formError}</Text>
               ) : null}
               <PRGInput
                 label="Display name *"
@@ -520,7 +510,7 @@ export function GuidedWalkSpacesStep({
                 placeholder="e.g., Bedroom 2, Patio"
                 autoCapitalize="words"
               />
-              <Text style={[styles.typeLabel, { color: themeColors.textSecondary }]}>
+              <Text style={[styles.typeLabel, { color: colors.textSecondary }]}>
                 Space type *
               </Text>
               <View style={styles.spaceTypeOptions}>
@@ -589,12 +579,10 @@ const styles = StyleSheet.create({
   stepTitle: {
     fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold,
-    color: colors.dark,
     marginBottom: spacing.sm,
   },
   stepDescription: {
     fontSize: typography.fontSize.base,
-    color: colors.gray[600],
     marginBottom: spacing.lg,
     lineHeight: 22,
   },

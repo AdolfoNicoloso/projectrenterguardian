@@ -4,10 +4,10 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { PRGCard, PRGEditableTextRow, PRGButton, DateField, NumberPicker } from '../components';
 import { spacing, typography } from '../theme';
 import { useTheme } from '../theme/useTheme';
-import { formatDisplayDate } from '../utils/cmsDateTime';
+import { formatDisplayDate, leaseEndFromStartAndTerm } from '../utils/cmsDateTime';
 import { isValidOptionalHttpUrl } from '../utils/validation';
 import { Routes } from '../navigation/routes';
-import { PROPERTY_STATUSES, getPropertyStatusLabel, isActivePropertyStatus, isTouringPropertyStatus } from '../constants/propertyStatuses';
+import { PROPERTY_STATUSES, getPropertyStatusLabel, isActivePropertyStatus, isToursHubPropertyStatus, formatPropertyAddress, propertyDisplayName } from '../constants/propertyStatuses';
 import { inspectionsService } from '../services/inspectionsService';
 import type { Property } from '../types';
 
@@ -24,6 +24,7 @@ interface PropertyOverviewProps {
   onUpdateListingUrl?: (listingUrl: string) => void;
   onUpdateStatus?: (status: string) => void;
   onUpdateLeaseStart?: (leaseStart: string) => void;
+  onUpdateLeaseEnd?: (leaseEnd: string | null) => void;
   onUpdateLeaseTerm?: (leaseTerm: number | null) => void;
   onUpdateTourScheduledAt?: (tourScheduledAt: string | null) => void;
   onDelete?: () => void;
@@ -39,6 +40,7 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
   onUpdateListingUrl,
   onUpdateStatus,
   onUpdateLeaseStart,
+  onUpdateLeaseEnd,
   onUpdateLeaseTerm,
   onUpdateTourScheduledAt,
   onDelete,
@@ -50,13 +52,17 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
   const { colors } = useTheme();
 
   const [editingLeaseStart, setEditingLeaseStart] = useState(false);
+  const [editingLeaseEnd, setEditingLeaseEnd] = useState(false);
   const [editingLeaseTerm, setEditingLeaseTerm] = useState(false);
   const [editingTour, setEditingTour] = useState(
-    () => initialEditingTour && isTouringPropertyStatus(property.status)
+    () => initialEditingTour && isToursHubPropertyStatus(property.status)
   );
   const [editingStatus, setEditingStatus] = useState(false);
   const [editLeaseStart, setEditLeaseStart] = useState<string | null>(
     property.lease_start_date || null
+  );
+  const [editLeaseEnd, setEditLeaseEnd] = useState<string | null>(
+    property.lease_end_date || null
   );
   const [editLeaseTerm, setEditLeaseTerm] = useState<number | null>(
     property.lease_term ?? null
@@ -68,15 +74,16 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
 
   useEffect(() => {
     setEditLeaseStart(property.lease_start_date || null);
+    setEditLeaseEnd(property.lease_end_date || null);
     setEditLeaseTerm(property.lease_term ?? null);
-  }, [property.lease_start_date, property.lease_term]);
+  }, [property.lease_start_date, property.lease_end_date, property.lease_term]);
 
   useEffect(() => {
     setEditTourAt(property.tour_scheduled_at || null);
   }, [property.tour_scheduled_at]);
 
   const loadIncompleteTour = useCallback(async () => {
-    if (!isTouringPropertyStatus(property.status)) {
+    if (!isToursHubPropertyStatus(property.status)) {
       setIncompleteTourId(null);
       return;
     }
@@ -122,32 +129,70 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
   const showDraftButton = property.status?.toLowerCase() === 'draft';
   const showArchiveButton =
     isActivePropertyStatus(property.status) && isLeaseExpired();
-  const isTouring = isTouringPropertyStatus(property.status);
+  const inToursPipeline = isToursHubPropertyStatus(property.status);
   const canStartInspection =
-    isActivePropertyStatus(property.status) || isTouring;
+    isActivePropertyStatus(property.status) || inToursPipeline;
 
   const saveLeaseStart = () => {
     if (onUpdateLeaseStart && editLeaseStart) {
       onUpdateLeaseStart(editLeaseStart);
+      const derived = leaseEndFromStartAndTerm(
+        editLeaseStart,
+        editLeaseTerm ?? property.lease_term
+      );
+      if (derived && onUpdateLeaseEnd) {
+        onUpdateLeaseEnd(derived);
+        setEditLeaseEnd(derived);
+      }
     }
     setEditingLeaseStart(false);
   };
 
   const cancelLeaseStart = () => {
     setEditLeaseStart(property.lease_start_date || null);
+    setEditLeaseEnd(property.lease_end_date || null);
     setEditingLeaseStart(false);
+  };
+
+  const saveLeaseEnd = () => {
+    if (onUpdateLeaseEnd) {
+      onUpdateLeaseEnd(editLeaseEnd);
+    }
+    setEditingLeaseEnd(false);
+  };
+
+  const cancelLeaseEnd = () => {
+    setEditLeaseEnd(property.lease_end_date || null);
+    setEditingLeaseEnd(false);
   };
 
   const saveLeaseTerm = () => {
     if (onUpdateLeaseTerm !== undefined) {
       onUpdateLeaseTerm(editLeaseTerm);
+      const derived = leaseEndFromStartAndTerm(
+        editLeaseStart || property.lease_start_date,
+        editLeaseTerm
+      );
+      if (derived && onUpdateLeaseEnd) {
+        onUpdateLeaseEnd(derived);
+        setEditLeaseEnd(derived);
+      }
     }
     setEditingLeaseTerm(false);
   };
 
   const cancelLeaseTerm = () => {
     setEditLeaseTerm(property.lease_term ?? null);
+    setEditLeaseEnd(property.lease_end_date || null);
     setEditingLeaseTerm(false);
+  };
+
+  const closeOtherEditors = () => {
+    setEditingLeaseStart(false);
+    setEditingLeaseEnd(false);
+    setEditingLeaseTerm(false);
+    setEditingTour(false);
+    setEditingStatus(false);
   };
 
   const saveTour = () => {
@@ -176,10 +221,19 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
         <PRGEditableTextRow
           label="Nickname"
           value={property.nickname ?? ''}
-          onSave={(value) => onUpdateNickname?.(value)}
-          placeholder="Add a nickname for this property"
+          displayValue={propertyDisplayName(property)}
+          onSave={(value) => {
+            const next = value.trim();
+            const address = formatPropertyAddress(property);
+            // Empty or equal to the address → no custom nickname (address is the name).
+            onUpdateNickname?.(
+              !next || (address && next === address) ? '' : next
+            );
+          }}
+          placeholder="Optional short name (defaults to full address)"
           editable={!!onUpdateNickname}
           allowEmpty
+          numberOfLines={3}
         />
       </PRGCard>
 
@@ -187,7 +241,7 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
         <Text style={[styles.label, { color: colors.textSecondary }]}>Address</Text>
         <View style={styles.valueRow}>
           <Text style={[styles.value, styles.valueFlex, { color: colors.text }]}>
-            {property.address_free_text}
+            {formatPropertyAddress(property) || property.address_free_text}
           </Text>
           <Text style={[styles.editHint, { color: colors.primary }]}>Tap to edit</Text>
         </View>
@@ -217,7 +271,7 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
         />
       </PRGCard>
 
-      {isTouring ? (
+      {inToursPipeline ? (
         <PRGCard>
           {!editingTour ? (
             <View>
@@ -234,10 +288,8 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
                     style={[styles.editHint, { color: colors.primary }]}
                     onPress={() => {
                       setEditTourAt(property.tour_scheduled_at || null);
+                      closeOtherEditors();
                       setEditingTour(true);
-                      setEditingLeaseStart(false);
-                      setEditingLeaseTerm(false);
-                      setEditingStatus(false);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Edit tour date and time"
@@ -302,10 +354,8 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
                       style={[styles.editHint, { color: colors.primary }]}
                       onPress={() => {
                         setEditLeaseStart(property.lease_start_date || null);
+                        closeOtherEditors();
                         setEditingLeaseStart(true);
-                        setEditingLeaseTerm(false);
-                        setEditingTour(false);
-                        setEditingStatus(false);
                       }}
                       accessibilityRole="button"
                       accessibilityLabel="Edit lease start date"
@@ -320,7 +370,14 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
                 <DateField
                   label="Lease Start Date"
                   valueISO={editLeaseStart}
-                  onChangeISO={setEditLeaseStart}
+                  onChangeISO={(iso) => {
+                    setEditLeaseStart(iso);
+                    const derived = leaseEndFromStartAndTerm(
+                      iso,
+                      editLeaseTerm ?? property.lease_term
+                    );
+                    if (derived) setEditLeaseEnd(derived);
+                  }}
                   dateOnly
                   placeholder="Select lease start date"
                 />
@@ -351,10 +408,8 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
                       style={[styles.editHint, { color: colors.primary }]}
                       onPress={() => {
                         setEditLeaseTerm(property.lease_term ?? null);
+                        closeOtherEditors();
                         setEditingLeaseTerm(true);
-                        setEditingLeaseStart(false);
-                        setEditingTour(false);
-                        setEditingStatus(false);
                       }}
                     >
                       Tap to edit
@@ -367,7 +422,14 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
                 <NumberPicker
                   label="Lease Term (months)"
                   value={editLeaseTerm}
-                  onChange={setEditLeaseTerm}
+                  onChange={(term) => {
+                    setEditLeaseTerm(term);
+                    const derived = leaseEndFromStartAndTerm(
+                      editLeaseStart || property.lease_start_date,
+                      term
+                    );
+                    if (derived) setEditLeaseEnd(derived);
+                  }}
                   min={1}
                   max={36}
                   placeholder="Select number of months"
@@ -380,14 +442,65 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
             )}
           </PRGCard>
 
-          {property.lease_end_date ? (
-            <PRGCard>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Lease End</Text>
-              <Text style={[styles.value, { color: colors.text }]}>
-                {formatDisplayDate(property.lease_end_date) || 'N/A'}
-              </Text>
-            </PRGCard>
-          ) : null}
+          <PRGCard>
+            {!editingLeaseEnd ? (
+              <View>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>Lease End</Text>
+                <View style={styles.valueRow}>
+                  <Text style={[styles.value, styles.valueFlex, { color: colors.text }]}>
+                    {formatDisplayDate(property.lease_end_date) || 'N/A'}
+                  </Text>
+                  {onUpdateLeaseEnd ? (
+                    <Text
+                      style={[styles.editHint, { color: colors.primary }]}
+                      onPress={() => {
+                        setEditLeaseEnd(property.lease_end_date || null);
+                        closeOtherEditors();
+                        setEditingLeaseEnd(true);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Edit lease end date"
+                    >
+                      Tap to edit
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            ) : (
+              <View>
+                <DateField
+                  label="Lease End Date"
+                  valueISO={editLeaseEnd}
+                  onChangeISO={setEditLeaseEnd}
+                  dateOnly
+                  minimumISO={
+                    editLeaseStart || property.lease_start_date || undefined
+                  }
+                  placeholder="Auto from start + term (editable)"
+                />
+                <View style={styles.editActions}>
+                  <PRGButton
+                    title="Clear"
+                    onPress={() => setEditLeaseEnd(null)}
+                    variant="ghost"
+                    style={styles.actionButton}
+                  />
+                  <PRGButton
+                    title="Cancel"
+                    onPress={cancelLeaseEnd}
+                    variant="ghost"
+                    style={styles.actionButton}
+                  />
+                  <PRGButton
+                    title="Save"
+                    onPress={saveLeaseEnd}
+                    variant="primary"
+                    style={styles.actionButton}
+                  />
+                </View>
+              </View>
+            )}
+          </PRGCard>
         </>
       )}
 
@@ -403,10 +516,8 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
                 <Text
                   style={[styles.editHint, { color: colors.primary }]}
                   onPress={() => {
+                    closeOtherEditors();
                     setEditingStatus(true);
-                    setEditingLeaseStart(false);
-                    setEditingLeaseTerm(false);
-                    setEditingTour(false);
                   }}
                 >
                   Tap to edit
@@ -418,16 +529,17 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
           <View>
             <Text style={[styles.label, { color: colors.textSecondary }]}>Status</Text>
             <Text style={[styles.helper, { color: colors.textSecondary }]}>
-              Active properties can start any inspection. Touring properties can start a Tour.
+              Active can start any inspection. Touring and Applied can start a Tour.
+              Mark Applied after you apply; convert to Active when you move in.
             </Text>
             {PROPERTY_STATUSES.map((status) => (
               <PRGButton
                 key={status.value}
                 title={status.label}
                 onPress={() => {
-                  // Touring → Active needs lease; use convert flow.
+                  // Touring / Applied → Active needs lease; use convert flow.
                   if (
-                    isTouring &&
+                    inToursPipeline &&
                     status.value === 'active'
                   ) {
                     setEditingStatus(false);
@@ -454,72 +566,74 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
         )}
       </PRGCard>
 
-      {canStartInspection ? (
-        <View style={styles.actionContainer}>
-          <PRGButton
-            title={
-              isTouring
-                ? incompleteTourId
-                  ? 'Continue tour'
-                  : 'Start Tour'
-                : 'Start Inspection'
-            }
-            onPress={() => {
-              if (isTouring && incompleteTourId) {
-                router.push(`/(tabs)/inspections/${incompleteTourId}`);
-                return;
-              }
-              router.push(
-                isTouring
-                  ? `/(tabs)/inspections/new?propertyId=${property.id}&inspectionType=tour`
-                  : `/(tabs)/inspections/new?propertyId=${property.id}`
-              );
-            }}
-            variant="primary"
-            style={styles.actionButtonFull}
-          />
-        </View>
-      ) : (
+      {!canStartInspection ? (
         <PRGCard style={styles.inactiveNotice}>
-          <Text style={[styles.helper, { color: colors.textSecondary }]}>
-            Set this property’s status to Active (or Touring for a viewing) to start an inspection.
+          <Text style={[styles.helper, { color: colors.textSecondary, marginBottom: 0 }]}>
+            Set this property’s status to Active, Touring, or Applied to start an inspection.
           </Text>
         </PRGCard>
-      )}
+      ) : null}
 
-      {(showDraftButton || showArchiveButton) && (
-        <View style={styles.actionContainer}>
-          <PRGButton
-            title={showDraftButton ? 'Signed the lease?' : 'Done moving out?'}
-            onPress={() => {
-              if (showDraftButton && onUpdateStatus) {
-                onUpdateStatus('active');
-              } else if (showArchiveButton && onUpdateStatus) {
-                onUpdateStatus('archived');
+      {canStartInspection || showDraftButton || showArchiveButton || onManagePeople ? (
+        <View style={styles.actionsStack}>
+          {canStartInspection ? (
+            <PRGButton
+              title={
+                inToursPipeline
+                  ? incompleteTourId
+                    ? 'Continue tour'
+                    : 'Start Tour'
+                  : 'Start Inspection'
               }
-            }}
-            variant="primary"
-            style={styles.actionButtonFull}
-          />
-        </View>
-      )}
+              onPress={() => {
+                if (inToursPipeline && incompleteTourId) {
+                  router.push(`/(tabs)/inspections/${incompleteTourId}`);
+                  return;
+                }
+                router.push(
+                  inToursPipeline
+                    ? `/(tabs)/inspections/new?propertyId=${property.id}&inspectionType=tour`
+                    : `/(tabs)/inspections/new?propertyId=${property.id}`
+                );
+              }}
+              variant="primary"
+              style={styles.actionButtonFull}
+            />
+          ) : null}
 
-      {onManagePeople && (
-        <View style={styles.peopleContainer}>
-          <PRGButton
-            title="People & invites"
-            onPress={onManagePeople}
-            variant="secondary"
-            style={styles.actionButtonFull}
-            accessibilityLabel="Manage people and invites"
-          />
-          {property.my_role && property.my_role !== 'owner' ? (
-            <Text style={[styles.roleHint, { color: colors.textSecondary }]}>
-              Your access: {property.my_role === 'edit' ? 'Edit' : 'View only'}
-            </Text>
+          {showDraftButton || showArchiveButton ? (
+            <PRGButton
+              title={showDraftButton ? 'Signed the lease?' : 'Done moving out?'}
+              onPress={() => {
+                if (showDraftButton && onUpdateStatus) {
+                  onUpdateStatus('active');
+                } else if (showArchiveButton && onUpdateStatus) {
+                  onUpdateStatus('archived');
+                }
+              }}
+              variant="primary"
+              style={styles.actionButtonFull}
+            />
+          ) : null}
+
+          {onManagePeople ? (
+            <View>
+              <PRGButton
+                title="People & invites"
+                onPress={onManagePeople}
+                variant="secondary"
+                style={styles.actionButtonFull}
+                accessibilityLabel="Manage people and invites"
+              />
+              {property.my_role && property.my_role !== 'owner' ? (
+                <Text style={[styles.roleHint, { color: colors.textSecondary }]}>
+                  Your access: {property.my_role === 'edit' ? 'Edit' : 'View only'}
+                </Text>
+              ) : null}
+            </View>
           ) : null}
         </View>
-      )}
+      ) : null}
 
       {onDelete && (
         <View style={styles.deleteContainer}>
@@ -530,13 +644,13 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
 
               if (Platform.OS === 'web') {
                 const confirmed = window.confirm(
-                  `Are you sure you want to delete "${property.nickname || property.address_free_text}"?\n\nAll information, including Reports, will be deleted as well.\n\nThis action cannot be undone.`
+                  `Are you sure you want to delete "${propertyDisplayName(property)}"?\n\nAll information, including Reports, will be deleted as well.\n\nThis action cannot be undone.`
                 );
                 if (confirmed) onDelete();
               } else {
                 Alert.alert(
                   'Delete Property',
-                  `Are you sure you want to delete "${property.nickname || property.address_free_text}"?\n\nAll information, including Reports, will be deleted as well.\n\nThis action cannot be undone.`,
+                  `Are you sure you want to delete "${propertyDisplayName(property)}"?\n\nAll information, including Reports, will be deleted as well.\n\nThis action cannot be undone.`,
                   [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Delete', style: 'destructive', onPress: onDelete },
@@ -604,13 +718,12 @@ const styles = StyleSheet.create({
   actionButton: {
     minWidth: 80,
   },
-  actionContainer: {
-    padding: spacing.md,
-    paddingTop: spacing.lg,
+  actionsStack: {
+    marginTop: spacing.md,
+    gap: spacing.sm,
   },
   actionButtonFull: {
     width: '100%',
-    marginBottom: spacing.sm,
   },
   statusOption: {
     marginBottom: spacing.sm,
@@ -618,20 +731,15 @@ const styles = StyleSheet.create({
   inactiveNotice: {
     marginTop: spacing.md,
   },
-  peopleContainer: {
-    marginTop: spacing.lg,
-    paddingHorizontal: spacing.md,
-  },
   roleHint: {
     fontSize: typography.fontSize.sm,
     fontFamily: typography.fontFamily.regular,
     textAlign: 'center',
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
   },
   deleteContainer: {
-    marginTop: spacing.lg,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
+    marginTop: spacing.md,
+    paddingBottom: spacing.sm,
   },
   deleteButton: {
     width: '100%',

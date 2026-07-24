@@ -5,7 +5,8 @@ import { PRGCard, PRGBadge, PRGEmptyState, PRGButton } from '../components';
 import { spacesService } from '../services/spacesService';
 import { photosService } from '../services/photosService';
 import { getSpaceTypeLabel } from '../constants/spaceTypes';
-import { colors, spacing, typography } from '../theme';
+import { spacing, typography } from '../theme';
+import { useTheme } from '../theme/useTheme';
 import type { Space } from '../types';
 
 interface PropertySpacesProps {
@@ -18,6 +19,7 @@ export const PropertySpaces: React.FC<PropertySpacesProps> = ({
   canEdit = true,
 }) => {
   const router = useRouter();
+  const { colors } = useTheme();
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [photoCounts, setPhotoCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -63,16 +65,21 @@ export const PropertySpaces: React.FC<PropertySpacesProps> = ({
 
   if (loading && spaces.length === 0) {
     return (
-      <View style={styles.container}>
-        <Text>Loading...</Text>
+      <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
+        <Text style={{ color: colors.textSecondary }}>Loading...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
       {canEdit ? (
-        <View style={styles.header}>
+        <View
+          style={[
+            styles.header,
+            { backgroundColor: colors.card, borderBottomColor: colors.border },
+          ]}
+        >
           <PRGButton
             title="Add Space"
             onPress={() => router.push(`/(tabs)/properties/${propertyId}/spaces/create`)}
@@ -105,14 +112,16 @@ export const PropertySpaces: React.FC<PropertySpacesProps> = ({
             >
               <View style={styles.spaceRow}>
                 <View style={styles.spaceInfo}>
-                  <Text style={styles.spaceName}>{item.display_name}</Text>
+                  <Text style={[styles.spaceName, { color: colors.text }]}>
+                    {item.display_name}
+                  </Text>
                   <PRGBadge
                     label={getSpaceTypeLabel(item.space_type, item.custom_space_type)}
                     variant="default"
                     style={styles.badge}
                   />
                 </View>
-                <Text style={styles.photoCount}>
+                <Text style={[styles.photoCount, { color: colors.textSecondary }]}>
                   {getPhotoCount(item.id)} photos
                 </Text>
               </View>
@@ -128,13 +137,10 @@ export const PropertySpaces: React.FC<PropertySpacesProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.gray[50],
   },
   header: {
     padding: spacing.md,
-    backgroundColor: colors.light,
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray[200],
   },
   listContent: {
     padding: spacing.md,
@@ -150,7 +156,6 @@ const styles = StyleSheet.create({
   spaceName: {
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semibold,
-    color: colors.dark,
     marginBottom: spacing.xs,
   },
   badge: {
@@ -158,7 +163,6 @@ const styles = StyleSheet.create({
   },
   photoCount: {
     fontSize: typography.fontSize.sm,
-    color: colors.gray[600],
   },
 });
 

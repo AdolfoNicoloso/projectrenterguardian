@@ -20,6 +20,9 @@ import { getInviteWebUrl } from '../../../../src/config/webApp';
 import { useProperty } from '../../../../src/hooks/usePropertiesQuery';
 import { spacing, typography } from '../../../../src/theme';
 import { useTheme } from '../../../../src/theme/useTheme';
+import { propertyDisplayName } from '../../../../src/constants/propertyStatuses';
+import { goBackOr } from '../../../../src/navigation/goBackOr';
+import { Routes } from '../../../../src/navigation/routes';
 import type {
   PropertyInvite,
   PropertyMember,
@@ -172,8 +175,7 @@ export default function PropertyPeopleScreen() {
 
   const reshareInvite = async (invite: PropertyInvite) => {
     const url = invite.share_url || getInviteWebUrl(invite.token);
-    const label =
-      property?.nickname || property?.address_free_text || 'a property';
+    const label = property ? propertyDisplayName(property) : 'a property';
     const message = `You've been invited to ${label} on Renter Guardian. Open this link to accept: ${url}`;
     await shareInvite(message, url);
   };
@@ -183,7 +185,12 @@ export default function PropertyPeopleScreen() {
       <PRGHeader
         title="People"
         showBack
-        onBack={() => router.back()}
+        onBack={() =>
+          goBackOr(
+            router,
+            typeof id === 'string' ? Routes.PROPERTIES.DETAIL(id) : Routes.RENTS.LIST
+          )
+        }
       />
       <ScrollView contentContainerStyle={styles.content}>
         {loading && !people ? (

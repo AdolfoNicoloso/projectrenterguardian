@@ -1,12 +1,12 @@
 import React from 'react';
-import { View, ScrollView, ViewStyle } from 'react-native';
+import { View, ScrollView, ViewStyle, StyleProp } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/useTheme';
 import { spacing } from '../theme';
 
 interface ScreenContainerProps {
   children: React.ReactNode;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   /**
    * Whether to include top safe area padding (default: true)
    * Set to false if you're handling top padding manually (e.g., with a header component)
@@ -97,7 +97,7 @@ export const ScreenContainer: React.FC<ScreenContainerProps> = ({
  */
 interface ScrollableScreenContainerProps extends Omit<ScreenContainerProps, 'scrollable'> {
   children: React.ReactNode;
-  contentContainerStyle?: ViewStyle;
+  contentContainerStyle?: StyleProp<ViewStyle>;
   /**
    * Additional bottom padding for scroll content (default: spacing.lg)
    * Ensures content isn't cut off when scrolling to the bottom

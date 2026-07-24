@@ -54,7 +54,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
               style={[
                 styles.optionText,
                 {
-                  color: isSelected ? colors.textInverse : colors.text,
+                  color: isSelected ? colors.onPrimary : colors.text,
                 },
               ]}
             >

@@ -3,13 +3,15 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { PRGButton, PRGCard, PRGBadge, PRGHeader, useToast } from '../../../../../src/components';
 import { reportsService } from '../../../../../src/services/reportsService';
-import { colors, spacing, typography } from '../../../../../src/theme';
+import { spacing, typography } from '../../../../../src/theme';
+import { useTheme } from '../../../../../src/theme/useTheme';
 import type { Report } from '../../../../../src/types';
 import { formatDisplayDate } from '../../../../../src/utils/cmsDateTime';
 
 export default function ReportPreviewScreen() {
   const { reportId } = useLocalSearchParams<{ reportId: string }>();
   const router = useRouter();
+  const { colors } = useTheme();
   const { showToast } = useToast();
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,10 +43,10 @@ export default function ReportPreviewScreen() {
 
   if (loading) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
         <PRGHeader title="Report" showBack />
         <View style={styles.loadingContainer}>
-          <Text>Loading...</Text>
+          <Text style={{ color: colors.textSecondary }}>Loading...</Text>
         </View>
       </View>
     );
@@ -52,21 +54,21 @@ export default function ReportPreviewScreen() {
 
   if (!report) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
         <PRGHeader title="Report" showBack />
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Report not found</Text>
+          <Text style={[styles.errorText, { color: colors.textSecondary }]}>Report not found</Text>
         </View>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
       <PRGHeader title="Report Details" showBack />
       <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.header}>
-          <Text style={styles.title}>Report</Text>
+          <Text style={[styles.title, { color: colors.text }]}>Report</Text>
         <PRGBadge
           label={report.status || 'draft'}
           variant={report.status === 'ready' ? 'success' : 'warning'}
@@ -74,14 +76,14 @@ export default function ReportPreviewScreen() {
       </View>
 
       <PRGCard>
-        <Text style={styles.label}>Generated</Text>
-        <Text style={styles.value}>{formatDate(report.date_created)}</Text>
+        <Text style={[styles.label, { color: colors.textSecondary }]}>Generated</Text>
+        <Text style={[styles.value, { color: colors.text }]}>{formatDate(report.date_created)}</Text>
       </PRGCard>
 
       {report.snapshot_json && (
         <PRGCard>
-          <Text style={styles.sectionTitle}>Report Contents</Text>
-          <Text style={styles.jsonText}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Report Contents</Text>
+          <Text style={[styles.jsonText, { color: colors.textSecondary }]}>
             {JSON.stringify(report.snapshot_json, null, 2)}
           </Text>
         </PRGCard>
@@ -98,8 +100,8 @@ export default function ReportPreviewScreen() {
         />
       ) : (
         <PRGCard>
-          <Text style={styles.sectionTitle}>PDF export</Text>
-          <Text style={styles.jsonText}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>PDF export</Text>
+          <Text style={[styles.jsonText, { color: colors.textSecondary }]}>
             A downloadable PDF will appear here once report export is enabled. Your snapshot above is already saved.
           </Text>
         </PRGCard>
@@ -112,7 +114,6 @@ export default function ReportPreviewScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.gray[50],
   },
   loadingContainer: {
     flex: 1,
@@ -127,7 +128,6 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: typography.fontSize.base,
-    color: colors.gray[600],
   },
   content: {
     padding: spacing.md,
@@ -141,27 +141,22 @@ const styles = StyleSheet.create({
   title: {
     fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold,
-    color: colors.dark,
   },
   label: {
     fontSize: typography.fontSize.sm,
-    color: colors.gray[600],
     marginBottom: spacing.xs,
   },
   value: {
     fontSize: typography.fontSize.base,
-    color: colors.dark,
     fontWeight: typography.fontWeight.medium,
   },
   sectionTitle: {
     fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.semibold,
-    color: colors.dark,
     marginBottom: spacing.md,
   },
   jsonText: {
     fontSize: typography.fontSize.xs,
-    color: colors.gray[700],
     fontFamily: 'monospace',
   },
   button: {

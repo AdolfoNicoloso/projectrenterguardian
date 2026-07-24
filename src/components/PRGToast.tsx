@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
-import { colors, spacing, typography } from '../theme';
+import { spacing, typography } from '../theme';
+import { useTheme } from '../theme/useTheme';
 
 interface PRGToastProps {
   message: string;
@@ -17,6 +18,7 @@ export const PRGToast: React.FC<PRGToastProps> = ({
   onHide,
   duration = 3000,
 }) => {
+  const { colors } = useTheme();
   const opacity = React.useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -57,7 +59,7 @@ export const PRGToast: React.FC<PRGToastProps> = ({
         { opacity, backgroundColor },
       ]}
     >
-      <Text style={styles.message}>{message}</Text>
+      <Text style={[styles.message, { color: colors.onPrimary }]}>{message}</Text>
     </Animated.View>
   );
 };
@@ -73,11 +75,8 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
   message: {
-    color: colors.light,
     fontSize: typography.fontSize.base,
     fontFamily: typography.fontFamily.regular,
     textAlign: 'center',
   },
 });
-
-

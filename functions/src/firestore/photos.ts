@@ -142,7 +142,7 @@ export async function updatePhoto(
     space?: string;
     file?: string;
     assignment_status?: string;
-    /** Legacy single-string note; converted to notes_entries when array omitted. */
+    /** Legacy note string; converted to notes_entries if array omitted. */
     notes?: string;
     notes_entries?: unknown;
   }

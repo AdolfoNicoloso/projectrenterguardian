@@ -7,11 +7,17 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { PRGHeader, PRGPhotoGrid, PRGEmptyState, useToast, PRGLoadingOverlay, SVGIcon } from '../../../../../../src/components';
 import { photosService } from '../../../../../../src/services/photosService';
-import { processImageForUpload } from '../../../../../../src/services/photoUploadService';
+import { PHOTO_DOCUMENT_PICKER_TYPES } from '../../../../../../src/services/photoUploadService';
+import {
+  formatBatchUploadToast,
+  mapWithConcurrency,
+  pickMediaFromLibraryAsync,
+  uploadImagePickerAssetsBatch,
+} from '../../../../../../src/services/mediaBatchUpload';
 import { usePropertiesStore } from '../../../../../../src/state/propertiesStore';
 import { capturedAtFromExif } from '../../../../../../src/utils/cmsDateTime';
 import { canEditProperty } from '../../../../../../src/utils/propertyAccess';
-import { colors, spacing, typography } from '../../../../../../src/theme';
+import { spacing, typography } from '../../../../../../src/theme';
 import { useTheme } from '../../../../../../src/theme/useTheme';
 import type { Photo } from '../../../../../../src/types';
 import PlusFillIcon from '../../../../../../assets/nav_bar_symbols_final/plus.fill.svg';
@@ -20,11 +26,15 @@ export default function AddPhotosScreen() {
   const params = useLocalSearchParams<{ id: string | string[]; spaceId: string | string[] }>();
   const router = useRouter();
   const { showToast } = useToast();
-  const { colors: themeColors } = useTheme();
+  const { colors } = useTheme();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [filter, setFilter] = useState<'all' | 'unassigned' | 'assigned'>('all');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
   const [canEdit, setCanEdit] = useState(false);
 
   // Handle array params (Expo Router sometimes returns arrays)
@@ -80,7 +90,7 @@ export default function AddPhotosScreen() {
   const requestPermissions = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      alert('Permission to access camera roll is required!');
+      alert('Permission to access photo library is required!');
       return false;
     }
     return true;
@@ -88,19 +98,22 @@ export default function AddPhotosScreen() {
 
   const handlePickImages = async () => {
     if (!canEdit) return;
-    const hasPermission = await requestPermissions();
-    if (!hasPermission) return;
+    try {
+      if (Platform.OS !== 'web') {
+        const hasPermission = await requestPermissions();
+        if (!hasPermission) return;
+      }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.8,
-      preferredAssetRepresentationMode:
-        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-    });
-
-    if (!result.canceled && result.assets) {
-      await uploadPhotos(result.assets);
+      const assets = await pickMediaFromLibraryAsync();
+      if (assets?.length) {
+        await uploadPhotos(assets);
+      }
+    } catch (error) {
+      console.error('Error picking media:', error);
+      showToast(
+        error instanceof Error ? error.message : 'Failed to open photo library',
+        'error'
+      );
     }
   };
 
@@ -128,7 +141,7 @@ export default function AddPhotosScreen() {
     if (!canEdit) return;
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*', // Allow all file types
+        type: [...PHOTO_DOCUMENT_PICKER_TYPES],
         multiple: true,
         copyToCacheDirectory: true,
       });
@@ -142,23 +155,39 @@ export default function AddPhotosScreen() {
     }
   };
 
-  const processDocumentFile = async (document: DocumentPicker.DocumentPickerAsset): Promise<{ base64: string; mimeType: string; fileName: string }> => {
+  const processDocumentFile = async (
+    document: DocumentPicker.DocumentPickerAsset
+  ): Promise<{
+    base64?: string;
+    uri?: string;
+    mimeType: string;
+    fileName: string;
+    byteSize?: number;
+  }> => {
     if (!document.uri) {
       throw new Error('Document URI is missing');
     }
 
-    // Read file as base64
+    const mimeType = document.mimeType || 'application/octet-stream';
+    const fileName = document.name || `file-${Date.now()}`;
+    const byteSize = typeof document.size === 'number' ? document.size : undefined;
+
+    if (mimeType.toLowerCase().startsWith('video/')) {
+      // DO NOT REMOVE CODE — video uploads temporarily disabled.
+      throw new Error('Video uploads are temporarily disabled');
+      // DO NOT REMOVE CODE
+      // return { uri: document.uri, mimeType, fileName, byteSize };
+    }
+
     const base64Data = await FileSystem.readAsStringAsync(document.uri, {
       encoding: FileSystem.EncodingType.Base64,
     });
-
-    const mimeType = document.mimeType || 'application/octet-stream';
-    const fileName = document.name || `file-${Date.now()}`;
 
     return {
       base64: `data:${mimeType};base64,${base64Data}`,
       mimeType,
       fileName,
+      byteSize,
     };
   };
 
@@ -166,46 +195,44 @@ export default function AddPhotosScreen() {
     if (!id || !spaceId || !canEdit) return;
 
     setUploading(true);
-    let successCount = 0;
-    let failCount = 0;
+    setUploadProgress({ completed: 0, total: documents.length });
 
     try {
-      for (let i = 0; i < documents.length; i++) {
-        const document = documents[i];
-        try {
+      const { successCount, failCount, firstErrorMessage } = await mapWithConcurrency(
+        documents,
+        3,
+        async (document) => {
           const processed = await processDocumentFile(document);
-          await photosService.uploadAndCreatePhoto(
+          return photosService.uploadAndCreatePhoto(
             {
               base64: processed.base64,
+              uri: processed.uri,
               type: processed.mimeType,
               name: processed.fileName,
+              byteSize: processed.byteSize,
             },
             {
               property: id,
-              captured_at: document.modificationTime
-                ? new Date(document.modificationTime).toISOString()
-                : new Date().toISOString(),
+              captured_at: new Date().toISOString(),
               space: spaceId,
               assignment_status: 'confirmed' as const,
             }
           );
-          successCount += 1;
-        } catch (error) {
-          failCount += 1;
-          console.error('Upload error:', error);
-        }
-      }
+        },
+        ({ completed, total }) => setUploadProgress({ completed, total })
+      );
 
-      if (failCount === 0) {
-        showToast(`${successCount} file(s) uploaded`, 'success');
-      } else if (successCount === 0) {
-        showToast('Failed to upload files', 'error');
-      } else {
-        showToast(`${successCount} uploaded, ${failCount} failed`, 'error');
-      }
+      const toast = formatBatchUploadToast(
+        successCount,
+        failCount,
+        'file(s)',
+        firstErrorMessage
+      );
+      if (toast) showToast(toast.message, toast.type);
       await loadPhotos();
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -215,6 +242,8 @@ export default function AddPhotosScreen() {
       ActionSheetIOS.showActionSheetWithOptions(
         {
           options: ['Cancel', 'Take Photo', 'Photo Library', 'Choose Files'],
+          // DO NOT REMOVE CODE — video uploads temporarily disabled:
+          // options: ['Cancel', 'Take Photo', 'Photo & Video Library', 'Choose Files'],
           cancelButtonIndex: 0,
         },
         (buttonIndex) => {
@@ -232,7 +261,9 @@ export default function AddPhotosScreen() {
       handlePickImages();
     } else {
       Alert.alert(
-        'Upload Photos',
+        'Upload photos',
+        // DO NOT REMOVE CODE — video uploads temporarily disabled:
+        // 'Upload photos or videos',
         'Choose an option',
         [
           {
@@ -245,6 +276,8 @@ export default function AddPhotosScreen() {
           },
           {
             text: 'Photo Library',
+            // DO NOT REMOVE CODE
+            // text: 'Photo & Video Library',
             onPress: handlePickImages,
           },
           {
@@ -261,44 +294,36 @@ export default function AddPhotosScreen() {
     if (!id || !spaceId || !canEdit) return;
 
     setUploading(true);
-    let successCount = 0;
-    let failCount = 0;
+    setUploadProgress({ completed: 0, total: assets.length });
 
     try {
-      for (let i = 0; i < assets.length; i++) {
-        const asset = assets[i];
-        try {
-          const processed = await processImageForUpload(asset);
-          await photosService.uploadAndCreatePhoto(
-            {
-              base64: processed.base64,
-              type: processed.mimeType,
-              name: processed.fileName,
-            },
-            {
-              property: id,
-              captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
-              space: spaceId,
-              assignment_status: 'confirmed' as const,
-            }
-          );
-          successCount += 1;
-        } catch (error) {
-          failCount += 1;
-          console.error('Upload error:', error);
+      const { successCount, failCount, firstErrorMessage } = await uploadImagePickerAssetsBatch(
+        assets,
+        (asset) => ({
+          property: id,
+          captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
+          space: spaceId,
+          assignment_status: 'confirmed' as const,
+        }),
+        {
+          onProgress: ({ completed, total }) =>
+            setUploadProgress({ completed, total }),
         }
-      }
+      );
 
-      if (failCount === 0) {
-        showToast(`${successCount} photo(s) uploaded`, 'success');
-      } else if (successCount === 0) {
-        showToast('Failed to upload photos', 'error');
-      } else {
-        showToast(`${successCount} uploaded, ${failCount} failed`, 'error');
-      }
+      const toast = formatBatchUploadToast(
+        successCount,
+        failCount,
+        'photo(s)',
+        // DO NOT REMOVE CODE — video uploads temporarily disabled:
+        // 'photo(s)/video(s)',
+        firstErrorMessage
+      );
+      if (toast) showToast(toast.message, toast.type);
       await loadPhotos();
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -322,7 +347,7 @@ export default function AddPhotosScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
       <PRGHeader
         title="Add Photos"
         showBack
@@ -335,28 +360,69 @@ export default function AddPhotosScreen() {
             : undefined
         }
       />
-      <View style={styles.filters}>
+      <View
+        style={[
+          styles.filters,
+          { backgroundColor: colors.card, borderBottomColor: colors.border },
+        ]}
+      >
         <TouchableOpacity
-          style={[styles.filter, filter === 'all' && styles.filterActive]}
+          style={[
+            styles.filter,
+            filter === 'all' && { backgroundColor: colors.primary + '20' },
+          ]}
           onPress={() => setFilter('all')}
         >
-          <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>
+          <Text
+            style={[
+              styles.filterText,
+              { color: colors.textSecondary },
+              filter === 'all' && {
+                color: colors.primary,
+                fontWeight: typography.fontWeight.semibold,
+              },
+            ]}
+          >
             All
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.filter, filter === 'unassigned' && styles.filterActive]}
+          style={[
+            styles.filter,
+            filter === 'unassigned' && { backgroundColor: colors.primary + '20' },
+          ]}
           onPress={() => setFilter('unassigned')}
         >
-          <Text style={[styles.filterText, filter === 'unassigned' && styles.filterTextActive]}>
+          <Text
+            style={[
+              styles.filterText,
+              { color: colors.textSecondary },
+              filter === 'unassigned' && {
+                color: colors.primary,
+                fontWeight: typography.fontWeight.semibold,
+              },
+            ]}
+          >
             Unassigned
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.filter, filter === 'assigned' && styles.filterActive]}
+          style={[
+            styles.filter,
+            filter === 'assigned' && { backgroundColor: colors.primary + '20' },
+          ]}
           onPress={() => setFilter('assigned')}
         >
-          <Text style={[styles.filterText, filter === 'assigned' && styles.filterTextActive]}>
+          <Text
+            style={[
+              styles.filterText,
+              { color: colors.textSecondary },
+              filter === 'assigned' && {
+                color: colors.primary,
+                fontWeight: typography.fontWeight.semibold,
+              },
+            ]}
+          >
             Assigned
           </Text>
         </TouchableOpacity>
@@ -365,7 +431,7 @@ export default function AddPhotosScreen() {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         {loading && photos.length === 0 ? (
           <View style={styles.loadingContainer}>
-            <Text style={{ color: themeColors.text }}>Loading...</Text>
+            <Text style={{ color: colors.textSecondary }}>Loading...</Text>
           </View>
         ) : photos.length === 0 ? (
           <PRGEmptyState
@@ -384,7 +450,19 @@ export default function AddPhotosScreen() {
         )}
       </ScrollView>
 
-      <PRGLoadingOverlay visible={uploading} message="Uploading photos..." />
+      <PRGLoadingOverlay
+        visible={uploading}
+        message={
+          uploadProgress && uploadProgress.total > 0
+            ? `Uploading ${uploadProgress.completed}/${uploadProgress.total}...`
+            : 'Uploading photos...'
+        }
+        progress={
+          uploadProgress && uploadProgress.total > 0
+            ? Math.round((uploadProgress.completed / uploadProgress.total) * 100)
+            : undefined
+        }
+      />
     </View>
   );
 }
@@ -392,14 +470,11 @@ export default function AddPhotosScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.gray[50],
   },
   filters: {
     flexDirection: 'row',
     padding: spacing.md,
-    backgroundColor: colors.light,
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray[200],
   },
   filter: {
     paddingHorizontal: spacing.md,
@@ -407,16 +482,8 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
     borderRadius: 8,
   },
-  filterActive: {
-    backgroundColor: colors.primary + '20',
-  },
   filterText: {
     fontSize: typography.fontSize.sm,
-    color: colors.gray[600],
-  },
-  filterTextActive: {
-    color: colors.primary,
-    fontWeight: typography.fontWeight.semibold,
   },
   scrollView: {
     flex: 1,

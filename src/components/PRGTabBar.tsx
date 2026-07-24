@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { colors, spacing, typography } from '../theme';
+import { spacing, typography } from '../theme';
+import { useTheme } from '../theme/useTheme';
+import { useDesktopLayout } from '../hooks/useDesktopLayout';
 
 interface Tab {
   id: string;
@@ -14,33 +16,73 @@ interface PRGTabBarProps {
 }
 
 export const PRGTabBar: React.FC<PRGTabBarProps> = ({ tabs, activeTab, onTabChange }) => {
+  const { colors } = useTheme();
+  const isDesktop = useDesktopLayout();
+
   return (
-    <View style={styles.container}>
-      {tabs.map((tab) => {
-        const isActive = tab.id === activeTab;
-        return (
-          <TouchableOpacity
-            key={tab.id}
-            style={[styles.tab, isActive && styles.activeTab]}
-            onPress={() => onTabChange(tab.id)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.tabText, isActive && styles.activeTabText]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: colors.background,
+          borderBottomColor: colors.border,
+        },
+        isDesktop && styles.containerDesktop,
+      ]}
+    >
+      <View style={[styles.row, isDesktop && styles.rowDesktop]}>
+        {tabs.map((tab) => {
+          const isActive = tab.id === activeTab;
+          return (
+            <TouchableOpacity
+              key={tab.id}
+              style={[
+                styles.tab,
+                isDesktop && styles.tabDesktop,
+                isActive && { borderBottomColor: colors.primary },
+              ]}
+              onPress={() => onTabChange(tab.id)}
+              activeOpacity={0.7}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={tab.label}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  { color: colors.textSecondary },
+                  isActive && {
+                    color: colors.primary,
+                    fontWeight: typography.fontWeight.semibold,
+                  },
+                ]}
+              >
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray[200],
-    backgroundColor: colors.light,
+  },
+  containerDesktop: {
+    alignItems: 'center',
+  },
+  row: {
+    flexDirection: 'row',
+  },
+  rowDesktop: {
+    width: '100%',
+    maxWidth: 1120,
+    paddingHorizontal: 32,
+    justifyContent: 'flex-start',
+    gap: spacing.sm,
   },
   tab: {
     flex: 1,
@@ -49,18 +91,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
-  activeTab: {
-    borderBottomColor: colors.primary,
+  tabDesktop: {
+    flex: 0,
+    paddingHorizontal: spacing.md,
+    minWidth: 96,
   },
   tabText: {
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.medium,
-    color: colors.gray[600],
-  },
-  activeTabText: {
-    color: colors.primary,
-    fontWeight: typography.fontWeight.semibold,
+    fontFamily: typography.fontFamily.medium,
   },
 });
-
-

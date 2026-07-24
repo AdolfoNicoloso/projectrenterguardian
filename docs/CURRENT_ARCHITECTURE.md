@@ -38,3 +38,9 @@ See [CODINGRULES.md](./CODINGRULES.md).
 ## API surface
 
 Function names match client `backendClient.call(...)` targets (`getMyProperties`, `uploadFile`, `bootstrapProfile`, …). Region: `us-central1`.
+
+### Notifications & property invites
+
+- Invites create `notifications` docs for matching existing profiles; they are **not** auto-accepted on login.
+- Client inbox: `listMyNotifications`, `markNotificationRead` (also `{ all: true }`).
+- UI: bell + unread badge, top invite banner, `/(tabs)/notifications` inbox. Accepting an invite refreshes the property list without forcing navigation into the property.

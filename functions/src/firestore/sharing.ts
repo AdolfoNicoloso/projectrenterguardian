@@ -9,6 +9,11 @@ import {
   type PropertyRole,
 } from "./access";
 import {mapPropertyToClient} from "./mappers";
+import {
+  createNotification,
+  hasInviteNotification,
+  markInviteNotificationsRead,
+} from "./notifications";
 
 const INVITE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const SHARE_SCHEME = "renterguardian";
@@ -305,6 +310,22 @@ export async function createPropertyInvite(
   }
   const label = propertyLabel(access.property);
   const mapped = mapInviteToClient(doc);
+
+  // Notify existing users matching the invite contact (in-app inbox + banner).
+  try {
+    await notifyInviteesForInvite({
+      inviteId: ref.id,
+      token,
+      propertyId: input.propertyId,
+      propertyLabel: label,
+      role,
+      email,
+      phone,
+    });
+  } catch (err) {
+    console.warn("[createPropertyInvite] notify invitees failed", err);
+  }
+
   return {
     ...mapped,
     share_url: shareUrlForToken(token),
@@ -379,7 +400,51 @@ async function acceptInviteDoc(
   invite: FsDoc,
   appProfileId: string
 ): Promise<Record<string, unknown>> {
+  const propertyId = String(invite.property_id || "");
+  const role = String(invite.role || "view") as CollaboratorRole;
+  const roleOut = role === "edit" ? "edit" : "view";
+
+  // Already an active member — success even if invite was auto-claimed earlier.
+  const existing = await db()
+    .collection("property_members")
+    .where("property_id", "==", propertyId)
+    .where("app_profile_id", "==", appProfileId)
+    .where("status", "==", "active")
+    .limit(1)
+    .get();
+  if (!existing.empty) {
+    if (invite.status === "pending") {
+      await db().collection("property_invites").doc(invite.id).update({
+        status: "accepted",
+        accepted_by_app_profile_id: appProfileId,
+        date_updated: nowIso(),
+      });
+    }
+    try {
+      await markInviteNotificationsRead(appProfileId, invite.id);
+    } catch (err) {
+      console.warn("[acceptInviteDoc] mark invite notifications failed", err);
+    }
+    return {
+      already_member: true,
+      property_id: propertyId,
+      role: roleOut,
+      member_id: existing.docs[0].id,
+    };
+  }
+
   if (invite.status !== "pending") {
+    if (
+      invite.status === "accepted" &&
+      String(invite.accepted_by_app_profile_id || "") === appProfileId
+    ) {
+      try {
+        await markInviteNotificationsRead(appProfileId, invite.id);
+      } catch (err) {
+        console.warn("[acceptInviteDoc] mark invite notifications failed", err);
+      }
+      return {already_member: true, property_id: propertyId, role: roleOut};
+    }
     throw new Error("INVITE_NOT_PENDING");
   }
   if (
@@ -391,25 +456,6 @@ async function acceptInviteDoc(
       date_updated: nowIso(),
     });
     throw new Error("INVITE_EXPIRED");
-  }
-
-  const propertyId = String(invite.property_id || "");
-  const role = String(invite.role || "view") as CollaboratorRole;
-
-  // Already a member?
-  const existing = await db()
-    .collection("property_members")
-    .where("property_id", "==", propertyId)
-    .where("app_profile_id", "==", appProfileId)
-    .where("status", "==", "active")
-    .limit(1)
-    .get();
-  if (!existing.empty) {
-    await db().collection("property_invites").doc(invite.id).update({
-      status: "accepted",
-      date_updated: nowIso(),
-    });
-    return {already_member: true, property_id: propertyId, role};
   }
 
   // Cannot accept as owner
@@ -429,7 +475,7 @@ async function acceptInviteDoc(
   await memberRef.set({
     property_id: propertyId,
     app_profile_id: appProfileId,
-    role: role === "edit" ? "edit" : "view",
+    role: roleOut,
     status: "active",
     invited_by_app_profile_id: invite.invited_by_app_profile_id ?? null,
     invite_id: invite.id,
@@ -442,9 +488,15 @@ async function acceptInviteDoc(
     date_updated: ts,
   });
 
+  try {
+    await markInviteNotificationsRead(appProfileId, invite.id);
+  } catch (err) {
+    console.warn("[acceptInviteDoc] mark invite notifications failed", err);
+  }
+
   return {
     property_id: propertyId,
-    role: role === "edit" ? "edit" : "view",
+    role: roleOut,
     member_id: memberRef.id,
   };
 }
@@ -500,24 +552,87 @@ export async function acceptPropertyInvite(
 }
 
 /**
- * Claim all pending invites matching the user's email and/or phone.
+ * Create in-app notifications for profiles matching invite email/phone.
+ * Does not auto-accept — invitee must accept from inbox or invite link.
+ * @param {object} input Invite notification context.
+ * @return {Promise<number>} Notifications written.
+ */
+async function notifyInviteesForInvite(input: {
+  inviteId: string;
+  token: string;
+  propertyId: string;
+  propertyLabel: string;
+  role: string;
+  email: string | null;
+  phone: string | null;
+}): Promise<number> {
+  const profileIds = new Set<string>();
+  if (input.email) {
+    const snap = await db()
+      .collection("app_profiles")
+      .where("email", "==", input.email)
+      .limit(5)
+      .get();
+    for (const d of snap.docs) {
+      profileIds.add(d.id);
+    }
+  }
+  if (input.phone) {
+    const snap = await db()
+      .collection("app_profiles")
+      .where("phone", "==", input.phone)
+      .limit(5)
+      .get();
+    for (const d of snap.docs) {
+      profileIds.add(d.id);
+    }
+  }
+
+  const roleLabel = input.role === "edit" ? "edit" : "view-only";
+  const title = "Property invitation";
+  const body =
+    `You've been invited to ${input.propertyLabel} ` +
+    `with ${roleLabel} access.`;
+
+  let written = 0;
+  for (const appProfileId of profileIds) {
+    if (await hasInviteNotification(appProfileId, input.inviteId)) {
+      continue;
+    }
+    await createNotification({
+      appProfileId,
+      propertyId: input.propertyId,
+      type: "property_invite",
+      title,
+      body,
+      inviteId: input.inviteId,
+      inviteToken: input.token,
+    });
+    written += 1;
+  }
+  return written;
+}
+
+/**
+ * Discover pending invites for a profile and ensure inbox notifications exist.
+ * Does NOT auto-accept (replaces silent claim-on-login).
  * @param {string} appProfileId Profile id.
  * @param {Object} identity Contact info.
  * @param {string|null=} identity.email Email.
  * @param {string|null=} identity.phone Phone.
- * @return {Promise<number>} Number of invites claimed.
+ * @return {Promise<number>} Notifications created.
  */
-export async function claimPendingInvitesForProfile(
+export async function notifyPendingInvitesForProfile(
   appProfileId: string,
   identity: {email?: string | null; phone?: string | null}
 ): Promise<number> {
-  let claimed = 0;
+  let created = 0;
   const email = identity.email ?
     normalizeInviteEmail(identity.email) : null;
   const phone = identity.phone ?
     normalizeInvitePhone(identity.phone) : null;
 
-  const claimSnap = async (
+  const scan = async (
     field: "invite_email" | "invite_phone",
     value: string
   ) => {
@@ -530,22 +645,61 @@ export async function claimPendingInvitesForProfile(
     for (const d of snap.docs) {
       const invite = snapToDoc(d);
       if (!invite) continue;
-      try {
-        await acceptInviteDoc(invite, appProfileId);
-        claimed += 1;
-      } catch {
-        // Skip expired / already member / owner conflicts.
+      if (
+        invite.expires_at &&
+        Date.parse(String(invite.expires_at)) <= Date.now()
+      ) {
+        continue;
       }
+      if (await hasInviteNotification(appProfileId, invite.id)) {
+        continue;
+      }
+      const prop = snapToDoc(
+        await db()
+          .collection("properties")
+          .doc(String(invite.property_id))
+          .get()
+      );
+      const label = prop ? propertyLabel(prop) : "a property";
+      const role = String(invite.role || "view");
+      const roleLabel = role === "edit" ? "edit" : "view-only";
+      await createNotification({
+        appProfileId,
+        propertyId: String(invite.property_id || ""),
+        type: "property_invite",
+        title: "Property invitation",
+        body:
+          `You've been invited to ${label} with ${roleLabel} access.`,
+        inviteId: invite.id,
+        inviteToken: String(invite.token || ""),
+      });
+      created += 1;
     }
   };
 
   if (email) {
-    await claimSnap("invite_email", email);
+    await scan("invite_email", email);
   }
   if (phone) {
-    await claimSnap("invite_phone", phone);
+    await scan("invite_phone", phone);
   }
-  return claimed;
+  return created;
+}
+
+/**
+ * @deprecated No longer auto-accepts. Delegates to notify-only path so any
+ * leftover callers cannot silently assign membership.
+ * @param {string} appProfileId Profile id.
+ * @param {Object} identity Contact info.
+ * @param {string|null=} identity.email Email.
+ * @param {string|null=} identity.phone Phone.
+ * @return {Promise<number>} Notifications created (not memberships).
+ */
+export async function claimPendingInvitesForProfile(
+  appProfileId: string,
+  identity: {email?: string | null; phone?: string | null}
+): Promise<number> {
+  return notifyPendingInvitesForProfile(appProfileId, identity);
 }
 
 /**

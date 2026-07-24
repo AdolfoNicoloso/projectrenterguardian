@@ -204,3 +204,24 @@ export interface UserPreferences {
   date_created?: string;
   date_updated?: string;
 }
+
+export type AppNotificationType =
+  | 'property_invite'
+  | 'tour_reminder_1d'
+  | 'tour_reminder_30m'
+  | string;
+
+export interface AppNotification {
+  id: string;
+  app_profile_id: string;
+  property_id?: string | null;
+  type: AppNotificationType;
+  title: string;
+  body: string;
+  invite_id?: string | null;
+  invite_token?: string | null;
+  tour_scheduled_at?: string | null;
+  read_at?: string | null;
+  date_created?: string | null;
+  date_updated?: string | null;
+}

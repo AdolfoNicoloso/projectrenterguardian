@@ -131,6 +131,30 @@
         { "fieldPath": "property_id", "order": "ASCENDING" },
         { "fieldPath": "inspection_status", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "app_profile_id", "order": "ASCENDING" },
+        { "fieldPath": "date_created", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "app_profile_id", "order": "ASCENDING" },
+        { "fieldPath": "read_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "app_profile_id", "order": "ASCENDING" },
+        { "fieldPath": "invite_id", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

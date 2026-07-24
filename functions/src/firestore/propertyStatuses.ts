@@ -6,6 +6,7 @@
 export const PROPERTY_STATUS_VALUES = [
   "draft",
   "touring",
+  "applied",
   "active",
   "archived",
 ] as const;
@@ -26,7 +27,7 @@ export function isValidPropertyStatus(
 
 /**
  * Whether a property status may start the given inspection type.
- * Active: any type. Touring: tour only.
+ * Active: any type. Touring / Applied: tour only.
  * @param {string|undefined|null} status Property status.
  * @param {string} inspectionType Inspection type.
  * @return {boolean} True if allowed.
@@ -39,7 +40,7 @@ export function canPropertyStartInspectionType(
   if (s === "active") {
     return true;
   }
-  if (s === "touring") {
+  if (s === "touring" || s === "applied") {
     return inspectionType === "tour";
   }
   return false;

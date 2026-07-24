@@ -4,12 +4,14 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { PRGButton, PRGInput, PRGHeader, useToast } from '../../../../../src/components';
 import { spacesService } from '../../../../../src/services/spacesService';
 import { SPACE_TYPES } from '../../../../../src/constants/spaceTypes';
-import { colors, spacing, typography } from '../../../../../src/theme';
+import { spacing, typography } from '../../../../../src/theme';
+import { useTheme } from '../../../../../src/theme/useTheme';
 import type { Space } from '../../../../../src/types';
 
 export default function CreateSpaceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { colors } = useTheme();
   const { showToast } = useToast();
   const [displayName, setDisplayName] = useState('');
   const [spaceType, setSpaceType] = useState<Space['space_type']>('bedroom');
@@ -66,7 +68,7 @@ export default function CreateSpaceScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
       <PRGHeader title="Add Space" showBack />
       <KeyboardAvoidingView
         style={styles.keyboardView}
@@ -74,7 +76,7 @@ export default function CreateSpaceScreen() {
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.content}>
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {error ? <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text> : null}
 
             <PRGInput
               label="Display Name *"
@@ -85,7 +87,7 @@ export default function CreateSpaceScreen() {
             />
 
             <View style={styles.spaceTypeContainer}>
-              <Text style={styles.label}>Space Type *</Text>
+              <Text style={[styles.label, { color: colors.text }]}>Space Type *</Text>
               <View style={styles.spaceTypeOptions}>
                 {SPACE_TYPES.map((type) => (
                   <PRGButton
@@ -132,7 +134,6 @@ export default function CreateSpaceScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.gray[50],
   },
   keyboardView: {
     flex: 1,
@@ -151,7 +152,6 @@ const styles = StyleSheet.create({
   label: {
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.medium,
-    color: colors.dark,
     marginBottom: spacing.sm,
   },
   spaceTypeOptions: {
@@ -169,7 +169,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   errorText: {
-    color: colors.error,
     fontSize: typography.fontSize.sm,
     marginBottom: spacing.md,
     textAlign: 'center',

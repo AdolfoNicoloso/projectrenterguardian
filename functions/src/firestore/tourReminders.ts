@@ -108,7 +108,7 @@ export async function processDueTourReminders(): Promise<{
   const now = Date.now();
   const snap = await db()
     .collection("properties")
-    .where("status", "==", "touring")
+    .where("status", "in", ["touring", "applied"])
     .limit(200)
     .get();
 
