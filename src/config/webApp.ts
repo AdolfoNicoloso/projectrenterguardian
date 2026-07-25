@@ -17,3 +17,11 @@ export function getWebAppBaseUrl(): string {
 export function getInviteWebUrl(token: string): string {
   return `${getWebAppBaseUrl()}/invite/${encodeURIComponent(token)}`;
 }
+
+/**
+ * @param {string} token Public share token.
+ * @return {string} HTTPS public preview URL (no login).
+ */
+export function getPublicShareWebUrl(token: string): string {
+  return `${getWebAppBaseUrl()}/share/${encodeURIComponent(token)}`;
+}

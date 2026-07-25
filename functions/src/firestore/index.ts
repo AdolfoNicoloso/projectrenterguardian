@@ -1,8 +1,8 @@
 /**
- * Firestore + Storage CMS layer for Firebase Functions.
+ * Firestore + Storage domain layer for Firebase Functions.
  */
 
-export type {DownloadedFile, SignedUploadSession} from "./storage";
+export type {DownloadedFile, SignedUploadSession, MediaVariant} from "./storage";
 export {
   downloadByFileId,
   uploadBinary,
@@ -10,6 +10,7 @@ export {
   finalizeSignedUploadForProfile,
   deleteMediaFile,
   deleteUploadedFileForProfile,
+  createSignedReadUrl,
   MAX_BASE64_UPLOAD_BYTES,
   MAX_DIRECT_UPLOAD_BYTES,
 } from "./storage";
@@ -27,6 +28,7 @@ export * from "./reports";
 export * from "./assignments";
 export * from "./userPreferences";
 export * from "./sharing";
+export * from "./publicShares";
 export * from "./notifications";
 export * from "./tourReminders";
 export {

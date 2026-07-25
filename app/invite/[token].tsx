@@ -36,6 +36,7 @@ export default function AcceptInviteScreen() {
   const [preview, setPreview] = useState<{
     property_label: string;
     role: string;
+    invite_kind?: 'contact' | 'link';
     invite_email?: string | null;
     invite_phone?: string | null;
     status: string;
@@ -96,7 +97,7 @@ export default function AcceptInviteScreen() {
   if (authLoading) {
     return (
       <ScreenContainer>
-        <PRGHeader title="Invitation" showBack onBack={() => router.replace('/')} />
+        <PRGHeader title="Invitation" showBack={false} />
         <Text style={{ color: colors.textSecondary, padding: spacing.md }}>
           Loading…
         </Text>
@@ -105,16 +106,17 @@ export default function AcceptInviteScreen() {
   }
 
   if (!isAuthenticated) {
+    const openLinkHint =
+      'Sign in (or create an account), then open this link again to join the property.';
     return (
       <ScreenContainer>
-        <PRGHeader title="Invitation" showBack onBack={() => router.replace('/')} />
+        <PRGHeader title="Invitation" showBack={false} />
         <View style={styles.content}>
           <Text style={[styles.title, { color: colors.text }]}>
             You’ve been invited
           </Text>
           <Text style={[styles.body, { color: colors.textSecondary }]}>
-            Sign in with the email or phone this invite was sent to, then open
-            this link again to accept.
+            {openLinkHint}
           </Text>
           {error ? (
             <Text style={[styles.error, { color: colors.error }]}>{error}</Text>
@@ -150,9 +152,13 @@ export default function AcceptInviteScreen() {
     );
   }
 
+  const isOpenLink =
+    preview?.invite_kind === 'link' ||
+    (!!preview && !preview.invite_email && !preview.invite_phone);
+
   return (
     <ScreenContainer>
-      <PRGHeader title="Invitation" showBack onBack={() => router.replace(Routes.RENTS.LIST)} />
+      <PRGHeader title="Invitation" showBack={false} />
       <View style={styles.content}>
         {loading ? (
           <Text style={{ color: colors.textSecondary }}>Loading invite…</Text>
@@ -164,10 +170,13 @@ export default function AcceptInviteScreen() {
             <Text style={[styles.body, { color: colors.textSecondary }]}>
               You’ll get{' '}
               {preview?.role === 'edit' ? 'edit' : 'view-only'} access.
-              {preview?.invite_email
+              {isOpenLink
+                ? ' Anyone signed in with this link can join.'
+                : ''}
+              {!isOpenLink && preview?.invite_email
                 ? ` Sign-in email should match ${preview.invite_email}.`
                 : ''}
-              {preview?.invite_phone
+              {!isOpenLink && preview?.invite_phone
                 ? ` Sign-in phone should match ${preview.invite_phone}.`
                 : ''}
             </Text>

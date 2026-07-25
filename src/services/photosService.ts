@@ -5,6 +5,7 @@ import type { Photo } from '../types';
 import {
   isVideoMimeType,
   MAX_VIDEO_UPLOAD_BYTES,
+  VIDEO_UPLOADS_ENABLED,
 } from './photoUploadService';
 
 export type UploadableFile = {
@@ -45,15 +46,55 @@ async function blobFromUploadable(file: UploadableFile): Promise<Blob> {
   throw new Error('Missing file data for upload');
 }
 
+/** Matches functions MAX_BASE64_UPLOAD_BYTES (CF body path). */
+const MAX_BASE64_UPLOAD_BYTES = 15 * 1024 * 1024;
+
+function isLikelyCorsOrNetworkFailure(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /failed to fetch|network request failed|load failed|networkerror/i.test(
+    msg
+  );
+}
+
+async function dataUriForBase64Upload(
+  file: UploadableFile
+): Promise<string | null> {
+  if (file.base64) {
+    return file.base64.startsWith('data:')
+      ? file.base64
+      : `data:${file.type};base64,${file.base64}`;
+  }
+  if (!file.uri || typeof FileReader === 'undefined') {
+    return null;
+  }
+  try {
+    const blob = await blobFromUploadable(file);
+    if (blob.size > MAX_BASE64_UPLOAD_BYTES) {
+      return null;
+    }
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () =>
+        reject(reader.error || new Error('Failed to read file'));
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Domain service for photo operations.
  * Calls Firebase Cloud Functions only (Firestore/Storage on the server).
- * Videos use signed direct-to-GCS uploads; images use uploadFile base64.
+ * Default upload path is direct-to-GCS (`createMediaUpload` + PUT +
+ * `finalizeMediaUpload`). Base64 `uploadFile` remains as a small-file fallback.
  */
 class PhotosService {
   /**
    * Get all photos for a property.
-   * Verifies property ownership before returning photos.
+   * Requires property access (owner or collaborator).
    * @param {string} propertyId The property ID.
    * @param {object} filters Optional filters.
    * @param {string} filters.status Filter by assignment status.
@@ -62,7 +103,12 @@ class PhotosService {
    */
   async getPhotos(
     propertyId: string,
-    filters?: { status?: 'unassigned' | 'assigned'; spaceId?: string }
+    filters?: {
+      status?: 'unassigned' | 'assigned';
+      spaceId?: string;
+      /** Lean gallery payload (no notes). */
+      fields?: 'gallery';
+    }
   ): Promise<Photo[]> {
     const encodedId = encodeURIComponent(propertyId);
     let query = `getPhotos?propertyId=${encodedId}`;
@@ -72,6 +118,9 @@ class PhotosService {
     if (filters?.spaceId) {
       query += `&spaceId=${encodeURIComponent(filters.spaceId)}`;
     }
+    if (filters?.fields) {
+      query += `&fields=${encodeURIComponent(filters.fields)}`;
+    }
     const response = await backendClient.call<{ data: Photo[] }>(query, {
       method: 'GET',
     });
@@ -80,7 +129,7 @@ class PhotosService {
 
   /**
    * Get a single photo by ID.
-   * Verifies property ownership before returning photo.
+   * Verifies property access before returning photo.
    * @param {string} photoId The photo ID.
    * @return {Promise<Photo>} The photo.
    */
@@ -97,7 +146,7 @@ class PhotosService {
 
   /**
    * Create a new photo.
-   * Verifies property ownership before creating.
+   * Verifies property access before creating.
    * @param {Partial<Photo>} data Photo data (property, file, captured_at, etc.).
    * @return {Promise<Photo>} The created photo.
    */
@@ -111,7 +160,7 @@ class PhotosService {
 
   /**
    * Update a photo.
-   * Verifies property ownership before updating.
+   * Verifies property access before updating.
    * @param {string} photoId The photo ID.
    * @param {Partial<Photo>} updates The fields to update.
    * @return {Promise<Photo>} The updated photo.
@@ -144,8 +193,8 @@ class PhotosService {
   }
 
   /**
-   * Direct-to-Storage upload using a short-lived signed PUT URL.
-   * Required for videos (Cloud Functions reject video base64 bodies).
+   * Direct-to-Storage upload using a GCS resumable upload session URL.
+   * Preferred for images and required for large/video files.
    */
   async uploadFileDirect(file: UploadableFile): Promise<string> {
     const size =
@@ -229,30 +278,65 @@ class PhotosService {
   }
 
   /**
-   * Upload a file; chooses direct Storage for videos, base64 function for images.
+   * Upload a file; prefer direct Storage for images (and videos when enabled).
+   * On web, images within the CF size limit skip direct GCS PUT: browser PUT to
+   * the media bucket currently fails with CORS ("Failed to fetch") and wastes
+   * ~10s before the base64 fallback. Larger files still use direct upload.
    */
   async uploadFile(file: UploadableFile): Promise<string> {
     const isVideo = isVideoMimeType(file.type);
     if (isVideo) {
-      // DO NOT REMOVE CODE — video uploads temporarily disabled.
-      // Re-enable by removing this throw and restoring the direct-upload branch below.
-      throw new Error('Video uploads are temporarily disabled');
-      // DO NOT REMOVE CODE
-      // return this.uploadFileDirect(file);
+      if (!VIDEO_UPLOADS_ENABLED) {
+        throw new Error('Video uploads are temporarily disabled');
+      }
+      return this.uploadFileDirect(file);
     }
-    // DO NOT REMOVE CODE — direct Storage path for large / URI-only files (used by videos):
-    // if (file.uri && !file.base64) {
-    //   return this.uploadFileDirect(file);
-    // }
-    if (!file.base64) {
-      throw new Error('Missing base64 for image upload');
+
+    const size =
+      file.byteSize ??
+      (file.base64 ? estimateBytesFromBase64(file.base64) : undefined);
+
+    // Web + within CF limit: use base64 path directly (avoids doomed CORS PUT).
+    if (
+      Platform.OS === 'web' &&
+      (file.uri || file.base64) &&
+      (size == null || size <= MAX_BASE64_UPLOAD_BYTES)
+    ) {
+      const dataUri = await dataUriForBase64Upload(file);
+      if (dataUri) {
+        return this.uploadFileBase64({
+          base64: dataUri,
+          type: file.type,
+          name: file.name,
+          propertyId: file.propertyId,
+        });
+      }
     }
-    return this.uploadFileBase64({
-      base64: file.base64,
-      type: file.type,
-      name: file.name,
-      propertyId: file.propertyId,
-    });
+
+    if (file.uri || file.base64) {
+      try {
+        return await this.uploadFileDirect(file);
+      } catch (err) {
+        const canFallback =
+          Platform.OS === 'web' &&
+          isLikelyCorsOrNetworkFailure(err) &&
+          (size == null || size <= MAX_BASE64_UPLOAD_BYTES);
+        if (!canFallback) {
+          throw err;
+        }
+        const dataUri = await dataUriForBase64Upload(file);
+        if (!dataUri) {
+          throw err;
+        }
+        return this.uploadFileBase64({
+          base64: dataUri,
+          type: file.type,
+          name: file.name,
+          propertyId: file.propertyId,
+        });
+      }
+    }
+    throw new Error('Missing file data for image upload');
   }
 
   /**
@@ -293,7 +377,7 @@ class PhotosService {
 
   /**
    * Delete a photo.
-   * Verifies property ownership before deleting.
+   * Verifies property access before deleting.
    * @param {string} photoId The photo ID.
    * @return {Promise<void>} Resolves when photo is deleted.
    */

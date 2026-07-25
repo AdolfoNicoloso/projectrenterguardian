@@ -11,7 +11,7 @@ import type { PhotoSpaceAssignment } from '../types';
 class AssignmentsService {
   /**
    * Get all assignments for a photo.
-   * Verifies property ownership before returning assignments.
+   * Requires property access before returning assignments.
    */
   async getAssignments(photoId: string): Promise<PhotoSpaceAssignment[]> {
     const encodedId = encodeURIComponent(photoId);

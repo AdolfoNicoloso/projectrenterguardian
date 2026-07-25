@@ -8,11 +8,11 @@ Mobile-first React Native (Expo) app for documenting rental property condition a
 - **Expo Router** — file-based routing
 - **Zustand** — auth state
 - **Firebase Auth** — identity
-- **Cloud Functions** — API + ownership
+- **Cloud Functions** — API + property access (owner / collaborators)
 - **Cloud Firestore** — app data
 - **Cloud Storage** — photo bytes (`project-renter-guardian-media`)
 
-See [docs/CURRENT_ARCHITECTURE.md](./docs/CURRENT_ARCHITECTURE.md).
+See [docs/CURRENT_ARCHITECTURE.md](./docs/CURRENT_ARCHITECTURE.md) for the engineer map (media pipeline, where things live).
 
 **Using the app:** see [docs/QUICK_START.md](./docs/QUICK_START.md) for creating properties and running inspections.
 
@@ -58,8 +58,8 @@ Expo app → backendClient → Cloud Functions (Bearer ID token)
 ## Core flows
 
 1. **Auth** — Firebase login → `bootstrapProfile` creates/loads Firestore `app_profiles`
-2. **Properties / spaces** — CRUD via Functions
-3. **Photos** — client HEIC→JPEG if needed → `uploadFile` → `createPhoto` → `getFile` for display
+2. **Properties / spaces** — CRUD via Functions (owner + collaborator access)
+3. **Photos** — client may convert HEIC→JPEG and resize → direct GCS upload via `createMediaUpload` + PUT + `finalizeMediaUpload` (base64 `uploadFile` remains as a fallback) → `createPhoto` → display via `getFile?variant=thumb|display` (302 to a short-lived signed GCS URL when signing works)
 4. **Inspections** — `createInspection` seeds steps; wizard updates steps/progress
 5. **Reports** — `createReport` / list / detail (PDF export UI still stubbed)
 
@@ -74,4 +74,4 @@ Historical Directus/Strapi notes: [docs/archive/](./docs/archive/).
 - **App won’t start** — check `.env` Firebase vars; `npx expo start -c`
 - **Auth fails** — Firebase Auth enabled; correct project id
 - **Data empty** — user signed in; Functions deployed; Firestore rules deny client (expected — use Functions)
-- **Photos fail** — file size &lt; 20MB; HEIC converted on client; Functions can write to media bucket
+- **Photos fail** — prefer direct upload (up to ~200MB); base64-through-Function path capped at ~15MB; HEIC converted on the **client**; Functions must be able to write the media bucket and (for fast reads) sign GCS read URLs

@@ -10,7 +10,7 @@ import {
   uploadImagePickerAssetsBatch,
 } from '../../../../../src/services/mediaBatchUpload';
 import { usePropertiesStore } from '../../../../../src/state/propertiesStore';
-import { capturedAtFromExif } from '../../../../../src/utils/cmsDateTime';
+import { capturedAtFromExif } from '../../../../../src/utils/dateTime';
 import { canEditProperty } from '../../../../../src/utils/propertyAccess';
 import { spacing, typography } from '../../../../../src/theme';
 import { useTheme } from '../../../../../src/theme/useTheme';
@@ -165,8 +165,6 @@ export default function PhotoUploadScreen() {
         successCount,
         failCount,
         'photo(s)',
-        // DO NOT REMOVE CODE — video uploads temporarily disabled:
-        // 'photo(s)/video(s)',
         firstErrorMessage
       );
       if (toast) showToast(toast.message, toast.type);
@@ -193,9 +191,6 @@ export default function PhotoUploadScreen() {
           <>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               Select many photos at once from your device
-              {/* DO NOT REMOVE CODE — video uploads temporarily disabled:
-              Select many photos or videos at once from your device
-              */}
             </Text>
 
             <PRGButton

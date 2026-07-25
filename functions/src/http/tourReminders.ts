@@ -4,7 +4,7 @@
 
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import {onRequest} from "firebase-functions/v2/https";
-import * as cms from "../firestore";
+import * as domain from "../firestore";
 import {
   FN_OPTS,
   REGION,
@@ -26,7 +26,7 @@ export const processTourReminders = onSchedule(
     timeZone: "Etc/UTC",
   },
   async () => {
-    const result = await cms.processDueTourReminders();
+    const result = await domain.processDueTourReminders();
     console.info(
       "[processTourReminders]",
       `checked=${result.checked} sent=${result.sent}`
@@ -50,7 +50,7 @@ export const runTourRemindersNow = onRequest(FN_OPTS, async (req, res) => {
       s.status(405).json({error: "Method not allowed. Use POST."});
       return;
     }
-    const data = await cms.processDueTourReminders();
+    const data = await domain.processDueTourReminders();
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);

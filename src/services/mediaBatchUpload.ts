@@ -4,8 +4,8 @@ import type { ImagePickerAsset } from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import type { Photo } from '../types';
 import {
-  // DO NOT REMOVE CODE — used when video uploads are re-enabled in pickMediaFromLibraryAsync:
-  // PHOTO_DOCUMENT_PICKER_TYPES,
+  PHOTO_DOCUMENT_PICKER_TYPES,
+  VIDEO_UPLOADS_ENABLED,
   isVideoMimeType,
   processImageForUpload,
 } from './photoUploadService';
@@ -17,58 +17,43 @@ export const MEDIA_UPLOAD_CONCURRENCY = 3;
 /**
  * Shared library picker options for multi photo selection.
  * `selectionLimit: 0` = system max (unlimited where supported).
- *
- * DO NOT REMOVE CODE — video uploads temporarily disabled.
- * To re-enable videos: use MediaTypeOptions.All, Automatic representation,
- * and Android `legacy: true` (see commented branches below).
+ * Video inclusion follows VIDEO_UPLOADS_ENABLED.
  */
 export function mediaLibraryPickerOptions(options?: {
   imagesOnly?: boolean;
 }): ImagePicker.ImagePickerOptions {
-  // DO NOT REMOVE CODE — force images-only while videos are disabled.
-  // const imagesOnly = options?.imagesOnly === true;
-  const imagesOnly = true;
-  void options;
+  const imagesOnly =
+    !VIDEO_UPLOADS_ENABLED || options?.imagesOnly === true;
   return {
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
-    // DO NOT REMOVE CODE
-    // mediaTypes: imagesOnly
-    //   ? ImagePicker.MediaTypeOptions.Images
-    //   : ImagePicker.MediaTypeOptions.All,
+    mediaTypes: imagesOnly
+      ? ImagePicker.MediaTypeOptions.Images
+      : ImagePicker.MediaTypeOptions.All,
     allowsMultipleSelection: true,
     selectionLimit: 0,
     orderedSelection: true,
     quality: 0.8,
-    preferredAssetRepresentationMode:
-      ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-    // DO NOT REMOVE CODE — when videos are enabled, use Automatic for video assets:
-    // preferredAssetRepresentationMode: imagesOnly
-    //   ? ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible
-    //   : ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Automatic,
-    // DO NOT REMOVE CODE — Android: legacy GET_CONTENT shows image+video MIME types:
-    // ...(Platform.OS === 'android' && !imagesOnly ? { legacy: true } : {}),
+    preferredAssetRepresentationMode: imagesOnly
+      ? ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible
+      : ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Automatic,
+    ...(Platform.OS === 'android' && !imagesOnly ? { legacy: true } : {}),
   };
 }
 
 /**
- * Open the device library / file picker for photos.
- * DO NOT REMOVE CODE — video uploads temporarily disabled (imagesOnly forced).
- * On web, DocumentPicker with `image/*,video/*` was used so camera-roll sheets
- * included videos (expo-image-picker's web accept string often hid them).
+ * Open the device library / file picker for photos (and videos when enabled).
+ * On web, DocumentPicker is used so MIME filters are reliable.
  */
 export async function pickMediaFromLibraryAsync(options?: {
   imagesOnly?: boolean;
 }): Promise<ImagePickerAsset[] | null> {
-  // DO NOT REMOVE CODE — force images-only while videos are disabled.
-  // const imagesOnly = options?.imagesOnly === true;
-  const imagesOnly = true;
-  void options;
+  const imagesOnly =
+    !VIDEO_UPLOADS_ENABLED || options?.imagesOnly === true;
 
   if (Platform.OS === 'web') {
     const result = await DocumentPicker.getDocumentAsync({
-      type: ['image/*'],
-      // DO NOT REMOVE CODE — restore video MIME when re-enabling uploads:
-      // type: imagesOnly ? ['image/*'] : [...PHOTO_DOCUMENT_PICKER_TYPES],
+      type: imagesOnly
+        ? ['image/*']
+        : [...PHOTO_DOCUMENT_PICKER_TYPES],
       multiple: true,
       copyToCacheDirectory: true,
     });
@@ -98,24 +83,15 @@ function documentToImagePickerAsset(
     width: 0,
     height: 0,
     fileName: doc.name || undefined,
-    mimeType: mime || undefined,
     fileSize: doc.size ?? undefined,
+    mimeType: mime || undefined,
     type: isVideo ? 'video' : 'image',
-  };
+    assetId: null,
+    duration: null,
+    exif: null,
+    base64: null,
+  } as ImagePickerAsset;
 }
-
-
-export type BatchItemResult<T> =
-  | { ok: true; index: number; value: T }
-  | { ok: false; index: number; error: unknown };
-
-export type BatchUploadSummary<T> = {
-  successCount: number;
-  failCount: number;
-  successes: T[];
-  results: BatchItemResult<T>[];
-  firstErrorMessage?: string;
-};
 
 export type BatchProgress = {
   completed: number;
@@ -124,9 +100,20 @@ export type BatchProgress = {
   failCount: number;
 };
 
+export type BatchItemResult<R> =
+  | { ok: true; index: number; value: R }
+  | { ok: false; index: number; error: unknown };
+
+export type BatchUploadSummary<R> = {
+  successCount: number;
+  failCount: number;
+  successes: R[];
+  results: Array<BatchItemResult<R> | undefined>;
+  firstErrorMessage?: string;
+};
+
 /**
  * Run async work over items with a fixed concurrency pool.
- * Failures are captured per-item; the batch continues.
  */
 export async function mapWithConcurrency<T, R>(
   items: T[],
@@ -136,7 +123,7 @@ export async function mapWithConcurrency<T, R>(
   onItemComplete?: (result: BatchItemResult<R>) => void
 ): Promise<BatchUploadSummary<R>> {
   const total = items.length;
-  const results: BatchItemResult<R>[] = new Array(total);
+  const results: Array<BatchItemResult<R> | undefined> = new Array(total);
   let nextIndex = 0;
   let completed = 0;
   let successCount = 0;
@@ -145,8 +132,6 @@ export async function mapWithConcurrency<T, R>(
   const report = () => {
     onProgress?.({ completed, total, successCount, failCount });
   };
-
-  report();
 
   const runWorker = async () => {
     while (nextIndex < total) {
@@ -187,15 +172,14 @@ export async function mapWithConcurrency<T, R>(
         (r): r is Extract<BatchItemResult<R>, { ok: false }> => r?.ok === false
       );
       if (!failed) return undefined;
-      return failed.error instanceof Error
-        ? failed.error.message
-        : String(failed.error);
+      const err = failed.error;
+      return err instanceof Error ? err.message : String(err);
     })(),
   };
 }
 
 /**
- * Process ImagePicker assets and upload+create photo rows with concurrency.
+ * Process ImagePicker assets and create photo rows with limited concurrency.
  */
 export async function uploadImagePickerAssetsBatch(
   assets: ImagePickerAsset[],
@@ -270,8 +254,7 @@ export async function uploadProcessedFilesBatch(
 export function formatBatchUploadToast(
   successCount: number,
   failCount: number,
-  noun = 'photo(s)',
-  // DO NOT REMOVE CODE — default was 'photo(s)/video(s)' when videos were enabled
+  noun = VIDEO_UPLOADS_ENABLED ? 'photo(s)/video(s)' : 'photo(s)',
   firstErrorMessage?: string
 ): { message: string; type: 'success' | 'error' } | null {
   if (successCount === 0 && failCount === 0) return null;

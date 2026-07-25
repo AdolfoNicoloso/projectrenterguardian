@@ -2,20 +2,12 @@ import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react'
 import {
   View,
   Text,
-  StyleSheet,
   RefreshControl,
   ScrollView,
-  Modal,
-  Pressable,
-  Platform,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  PRGBadge,
-  PRGButton,
-  PRGCard,
   PRGEmptyState,
   PRGHeader,
   PRGInput,
@@ -29,8 +21,7 @@ import { inspectionsService } from '../services/inspectionsService';
 import { useAuthStore } from '../state/authStore';
 import { usePropertiesStore } from '../state/propertiesStore';
 import { usePropertiesList } from '../hooks/usePropertiesQuery';
-import { useDesktopLayout } from '../hooks/useDesktopLayout';
-import { spacing, typography } from '../theme';
+import { spacing } from '../theme';
 import { useTheme } from '../theme/useTheme';
 import type { Inspection, Property } from '../types';
 import { Routes } from '../navigation/routes';
@@ -39,86 +30,30 @@ import {
   isActivePropertyStatus,
   isTouringPropertyStatus,
   isToursHubPropertyStatus,
-  isAppliedPropertyStatus,
-  getPropertyStatusLabel,
   propertyDisplayName,
-  formatPropertyAddress,
 } from '../constants/propertyStatuses';
-import { formatDisplayDate } from '../utils/cmsDateTime';
 import {
-  getTourScheduleBucket,
-  getToursHubStage,
   hasTourScheduledAt,
   sortTouringProperties,
 } from '../utils/tourSchedule';
+import { HubPromptModal } from './propertyHub/HubPromptModal';
+import { ToursFilterChips } from './propertyHub/ToursFilterChips';
+import { ToursPropertyList } from './propertyHub/ToursPropertyList';
+import { RentsPropertyList } from './propertyHub/RentsPropertyList';
+import { propertyHubStyles as styles } from './propertyHub/propertyHubStyles';
+import {
+  markTourSchedulePromptShown,
+  propertyMatchesSearch,
+  propertyMatchesToursFilter,
+  shouldShowTourSchedulePrompt,
+} from './propertyHub/propertyHubSearch';
+import {
+  type PropertyHubHomeProps,
+  type PropertyHubMode,
+  type ToursListFilter,
+} from './propertyHub/types';
 
-/** Device-local throttle for the Tours “tour scheduled?” boot modal. */
-const TOUR_SCHEDULE_PROMPT_LAST_SHOWN_KEY = 'tour_schedule_prompt_last_shown_at';
-const TOUR_SCHEDULE_PROMPT_THROTTLE_MS = 60 * 60 * 1000; // 1 hour
-
-async function shouldShowTourSchedulePrompt(): Promise<boolean> {
-  try {
-    const raw = await AsyncStorage.getItem(TOUR_SCHEDULE_PROMPT_LAST_SHOWN_KEY);
-    if (!raw) return true;
-    const lastShown = Date.parse(raw);
-    if (!Number.isFinite(lastShown)) return true;
-    return Date.now() - lastShown >= TOUR_SCHEDULE_PROMPT_THROTTLE_MS;
-  } catch {
-    return true;
-  }
-}
-
-async function markTourSchedulePromptShown(): Promise<void> {
-  try {
-    await AsyncStorage.setItem(TOUR_SCHEDULE_PROMPT_LAST_SHOWN_KEY, new Date().toISOString());
-  } catch (err) {
-    console.error('Error persisting tour schedule prompt throttle:', err);
-  }
-}
-
-function propertyMatchesSearch(property: Property, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-  const haystack = [
-    property.nickname,
-    property.address_free_text,
-    property.street,
-    property.unit,
-    property.city,
-    property.state_code,
-    property.zip != null ? String(property.zip) : null,
-  ]
-    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
-    .join(' ')
-    .toLowerCase();
-  return haystack.includes(q);
-}
-
-export type PropertyHubMode = 'rents' | 'tours';
-
-type ToursListFilter = 'scheduled' | 'toured' | 'applied';
-
-const TOURS_FILTER_TAGS: Array<{ id: ToursListFilter; label: string }> = [
-  { id: 'scheduled', label: 'Scheduled' },
-  { id: 'toured', label: 'Toured' },
-  { id: 'applied', label: 'Applied' },
-];
-
-function propertyMatchesToursFilter(
-  property: Property,
-  filter: ToursListFilter
-): boolean {
-  if (filter === 'applied') {
-    return isAppliedPropertyStatus(property.status);
-  }
-  const bucket = getTourScheduleBucket(property);
-  if (filter === 'scheduled') return bucket === 'upcoming';
-  return bucket === 'toured';
-}
-
-type PropertyHubHomeProps = {
-  mode: PropertyHubMode;
-};
+export type { PropertyHubMode };
 
 /**
  * Rents or Tours hub list (replaces the former Home segment control).
@@ -127,7 +62,6 @@ export function PropertyHubHome({ mode }: PropertyHubHomeProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const isDesktop = useDesktopLayout();
   const listContentStyle = useWebPageContentStyle(styles.listContent);
   const { isAuthenticated, isLoading: authLoading } = useAuthStore();
   const {
@@ -491,45 +425,10 @@ export function PropertyHubHome({ mode }: PropertyHubHomeProps) {
           />
 
           {isTours ? (
-            <View
-              style={styles.filterRow}
-              accessibilityRole="tablist"
-              accessibilityLabel="Filter tours"
-            >
-              {TOURS_FILTER_TAGS.map((tag) => {
-                const selected = toursFilters.includes(tag.id);
-                return (
-                  <Pressable
-                    key={tag.id}
-                    onPress={() => toggleToursFilter(tag.id)}
-                    style={({ pressed }) => [
-                      styles.filterChip,
-                      {
-                        borderColor: selected ? colors.primary : colors.border,
-                        backgroundColor: selected
-                          ? colors.primary + '18'
-                          : colors.backgroundSecondary,
-                      },
-                      pressed && { opacity: 0.75 },
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                    accessibilityLabel={`Filter ${tag.label}`}
-                  >
-                    <Text
-                      style={[
-                        styles.filterChipText,
-                        {
-                          color: selected ? colors.primary : colors.textSecondary,
-                        },
-                      ]}
-                    >
-                      {tag.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <ToursFilterChips
+              selected={toursFilters}
+              onToggle={toggleToursFilter}
+            />
           ) : null}
 
           {(hasSearchQuery || hasToursFilters) && !hasVisibleInView ? (
@@ -543,621 +442,56 @@ export function PropertyHubHome({ mode }: PropertyHubHomeProps) {
           ) : null}
 
           {isTours ? (
-            <>
-              {visibleTouring.length > 0 ? (
-                <View style={styles.section}>
-                  <View style={isDesktop ? styles.cardGrid : undefined}>
-                    {visibleTouring.map((property) => {
-                      const canEdit =
-                        !property.my_role ||
-                        property.my_role === 'owner' ||
-                        property.my_role === 'edit';
-                      const isTouring = isTouringPropertyStatus(property.status);
-                      const incompleteTourId = incompleteTourByPropertyId[property.id];
-                      const stage = getToursHubStage(property);
-                      return (
-                        <View
-                          key={property.id}
-                          style={isDesktop ? styles.cardGridItem : undefined}
-                        >
-                          <PropertyHubCard
-                            property={property}
-                            stageLabel={stage.label}
-                            stageVariant={stage.variant}
-                            stageDetail={
-                              stage.showTourAt
-                                ? formatDisplayDate(property.tour_scheduled_at, 'datetime')
-                                : undefined
-                            }
-                            primaryAction={
-                              canEdit
-                                ? incompleteTourId
-                                  ? {
-                                      label: 'Continue tour',
-                                      onPress: () =>
-                                        router.push(
-                                          `/(tabs)/inspections/${encodeURIComponent(incompleteTourId)}`
-                                        ),
-                                    }
-                                  : {
-                                      label: 'Start Tour',
-                                      onPress: () =>
-                                        router.push(
-                                          `/(tabs)/inspections/new?propertyId=${encodeURIComponent(property.id)}&inspectionType=tour`
-                                        ),
-                                    }
-                                : undefined
-                            }
-                            secondaryAction={
-                              canEdit && isTouring
-                                ? {
-                                    label:
-                                      markingAppliedId === property.id
-                                        ? 'Updating…'
-                                        : 'Applied?',
-                                    onPress: () => {
-                                      void markAsApplied(property);
-                                    },
-                                    disabled: markingAppliedId === property.id,
-                                  }
-                                : undefined
-                            }
-                            onOpen={() => router.push(Routes.PROPERTIES.DETAIL(property.id))}
-                            compact={isDesktop}
-                          />
-                        </View>
-                      );
-                    })}
-                    {isDesktop && !hasSearchQuery ? (
-                      <View style={styles.cardGridItem}>
-                        <AddPropertyCard onPress={() => router.push(Routes.PROPERTIES.CREATE)} />
-                      </View>
-                    ) : null}
-                  </View>
-                </View>
-              ) : !hasSearchQuery ? (
-                <PRGEmptyState
-                  title="No tours yet"
-                  message="Add a touring property to schedule walkthroughs and document what you see."
-                  actionLabel="Add touring property"
-                  onAction={() => router.push(Routes.PROPERTIES.CREATE)}
-                />
-              ) : null}
-            </>
+            <ToursPropertyList
+              properties={visibleTouring}
+              incompleteTourByPropertyId={incompleteTourByPropertyId}
+              markingAppliedId={markingAppliedId}
+              hasSearchQuery={hasSearchQuery}
+              onMarkApplied={(property) => {
+                void markAsApplied(property);
+              }}
+            />
           ) : (
-            <>
-              {visibleActive.length > 0 ? (
-                <View style={styles.section}>
-                  <View style={isDesktop ? styles.cardGrid : undefined}>
-                    {visibleActive.map((property) => {
-                      const canEdit =
-                        !property.my_role ||
-                        property.my_role === 'owner' ||
-                        property.my_role === 'edit';
-                      return (
-                        <View
-                          key={property.id}
-                          style={isDesktop ? styles.cardGridItem : undefined}
-                        >
-                          <PropertyHubCard
-                            property={property}
-                            statusLabel={
-                              property.my_role === 'view'
-                                ? 'Shared · View'
-                                : property.my_role === 'edit'
-                                  ? 'Shared · Edit'
-                                  : 'Active'
-                            }
-                            primaryAction={
-                              canEdit
-                                ? firstPropertyId === property.id && showFirstInspectionCTA
-                                  ? {
-                                      label: 'Start Move-In inspection',
-                                      onPress: () =>
-                                        router.push(
-                                          '/onboarding/inspection-ready?propertyId=' + property.id
-                                        ),
-                                    }
-                                  : {
-                                      label: 'Start inspection',
-                                      onPress: () =>
-                                        router.push(
-                                          `/(tabs)/inspections/new?propertyId=${encodeURIComponent(property.id)}`
-                                        ),
-                                    }
-                                : undefined
-                            }
-                            onOpen={() => router.push(Routes.PROPERTIES.DETAIL(property.id))}
-                            compact={isDesktop}
-                          />
-                        </View>
-                      );
-                    })}
-                    {isDesktop && !hasSearchQuery ? (
-                      <View style={styles.cardGridItem}>
-                        <AddPropertyCard onPress={() => router.push(Routes.PROPERTIES.CREATE)} />
-                      </View>
-                    ) : null}
-                  </View>
-                </View>
-              ) : !hasSearchQuery && other.length === 0 ? (
-                <PRGEmptyState
-                  title="No rentals yet"
-                  message="Add the place you’re renting, or convert a tour when you choose a place."
-                  actionLabel="Add rental"
-                  onAction={() => router.push(Routes.PROPERTIES.CREATE)}
-                />
-              ) : !hasSearchQuery && visibleActive.length === 0 ? (
-                <View style={styles.section}>
-                  <Text style={[styles.hubIntro, { color: colors.textSecondary }]}>
-                    No active rentals yet. Add one, or open a draft below.
-                  </Text>
-                </View>
-              ) : null}
-
-              {visibleOther.length > 0 ? (
-                <View style={styles.section}>
-                  {!hasSearchQuery ? (
-                    <PRGButton
-                      title={
-                        showOtherProperties
-                          ? 'Hide archived'
-                          : `Archived (${other.length})`
-                      }
-                      onPress={() => setShowOtherProperties((v) => !v)}
-                      variant="ghost"
-                      style={styles.otherToggle}
-                    />
-                  ) : (
-                    <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
-                      Archived
-                    </Text>
-                  )}
-                  {showOtherSection
-                    ? visibleOther.map((property) => (
-                        <PRGCard
-                          key={property.id}
-                          onPress={() => router.push(Routes.PROPERTIES.DETAIL(property.id))}
-                          style={styles.otherCard}
-                        >
-                          <Text style={[styles.cardTitle, { color: colors.text }]}>
-                            {propertyDisplayName(property)}
-                          </Text>
-                          <Text style={[styles.cardMeta, { color: colors.textTertiary }]}>
-                            {(property.status || 'draft').replace(/_/g, ' ')}
-                          </Text>
-                        </PRGCard>
-                      ))
-                    : null}
-                </View>
-              ) : null}
-            </>
+            <RentsPropertyList
+              activeProperties={visibleActive}
+              otherProperties={other}
+              visibleOther={visibleOther}
+              firstPropertyId={firstPropertyId}
+              showFirstInspectionCTA={showFirstInspectionCTA}
+              showOtherProperties={showOtherProperties}
+              showOtherSection={showOtherSection}
+              hasSearchQuery={hasSearchQuery}
+              onToggleArchived={() => setShowOtherProperties((v) => !v)}
+            />
           )}
         </ScrollView>
       )}
 
-      <Modal
+      <HubPromptModal
         visible={!!finishDraft}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setFinishDraft(null)}
-        accessibilityViewIsModal
-      >
-        <View style={[styles.promptBackdrop, { backgroundColor: colors.overlay }]}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setFinishDraft(null)}
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss"
-          />
-          <View
-            style={[styles.promptCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-          >
-            <Text style={[styles.promptTitle, { color: colors.text }]}>
-              Ready to finish your inspection?
-            </Text>
-            <Text style={[styles.promptBody, { color: colors.textSecondary }]}>
-              {finishDraft
-                ? `Your ${getInspectionTypeLabel(finishDraft.inspection_type).toLowerCase()} draft is ${finishDraft.inspections_progress}% complete. Continue where you left off, or come back later.`
-                : ''}
-            </Text>
-            <PRGButton
-              title="Yes, continue"
-              onPress={continueDraftInspection}
-              style={styles.promptButton}
-              accessibilityLabel="Continue unfinished inspection"
-            />
-            <PRGButton
-              title="Not right now"
-              onPress={() => setFinishDraft(null)}
-              variant="secondary"
-              style={styles.promptButton}
-              accessibilityLabel="Keep draft and close"
-            />
-          </View>
-        </View>
-      </Modal>
+        title="Ready to finish your inspection?"
+        body={
+          finishDraft
+            ? `Your ${getInspectionTypeLabel(finishDraft.inspection_type).toLowerCase()} draft is ${finishDraft.inspections_progress}% complete. Continue where you left off, or come back later.`
+            : ''
+        }
+        primaryLabel="Yes, continue"
+        primaryAccessibilityLabel="Continue unfinished inspection"
+        secondaryAccessibilityLabel="Keep draft and close"
+        onPrimary={continueDraftInspection}
+        onDismiss={() => setFinishDraft(null)}
+      />
 
-      <Modal
+      <HubPromptModal
         visible={!!tourPromptProperty}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setTourPromptProperty(null)}
-        accessibilityViewIsModal
-      >
-        <View style={[styles.promptBackdrop, { backgroundColor: colors.overlay }]}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setTourPromptProperty(null)}
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss"
-          />
-          <View
-            style={[styles.promptCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-          >
-            <Text style={[styles.promptTitle, { color: colors.text }]}>
-              {`Do you have a tour scheduled for ${tourPromptLabel}?`}
-            </Text>
-            <Text style={[styles.promptBody, { color: colors.textSecondary }]}>
-              Add your scheduled time now to get a reminder!
-            </Text>
-            <PRGButton
-              title="Add scheduled time"
-              onPress={openTourSchedule}
-              style={styles.promptButton}
-              accessibilityLabel="Add scheduled tour time"
-            />
-            <PRGButton
-              title="Not right now"
-              onPress={() => setTourPromptProperty(null)}
-              variant="secondary"
-              style={styles.promptButton}
-              accessibilityLabel="Skip scheduling for now"
-            />
-          </View>
-        </View>
-      </Modal>
+        title={`Do you have a tour scheduled for ${tourPromptLabel}?`}
+        body="Add your scheduled time now to get a reminder!"
+        primaryLabel="Add scheduled time"
+        primaryAccessibilityLabel="Add scheduled tour time"
+        secondaryAccessibilityLabel="Skip scheduling for now"
+        onPrimary={openTourSchedule}
+        onDismiss={() => setTourPromptProperty(null)}
+      />
     </ScreenContainer>
   );
 }
-
-/** Desktop grid tile: dashed empty slot that starts property creation. */
-function AddPropertyCard({ onPress }: { onPress: () => void }) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.addCard,
-        {
-          borderColor: colors.border,
-          backgroundColor: pressed ? colors.backgroundTertiary : colors.backgroundSecondary,
-        },
-      ]}
-      accessibilityRole="button"
-      accessibilityLabel="Add property"
-      accessibilityHint="Creates a new property"
-    >
-      <Text style={[styles.addCardPlus, { color: colors.primary }]}>+</Text>
-      <Text style={[styles.addCardTitle, { color: colors.text }]}>Add property</Text>
-      <Text style={[styles.addCardHint, { color: colors.textSecondary }]}>
-        Tour a place or add a rental
-      </Text>
-    </Pressable>
-  );
-}
-
-function PropertyHubCard({
-  property,
-  statusLabel,
-  stageLabel,
-  stageVariant,
-  stageDetail,
-  primaryAction,
-  secondaryAction,
-  onOpen,
-  compact = false,
-}: {
-  property: Property;
-  /** Rents hub: plain status text (e.g. Active / Shared). */
-  statusLabel?: string;
-  /**
-   * Tours hub: single combined stage badge
-   * (Applied | Scheduled | Toured | Not scheduled).
-   */
-  stageLabel?: string;
-  stageVariant?: 'success' | 'warning' | 'default';
-  /** Optional datetime shown beside the Tours stage badge. */
-  stageDetail?: string;
-  primaryAction?: { label: string; onPress: () => void };
-  secondaryAction?: {
-    label: string;
-    onPress: () => void;
-    disabled?: boolean;
-  };
-  onOpen: () => void;
-  /** Tighter card for desktop grid cells. */
-  compact?: boolean;
-}) {
-  const { colors } = useTheme();
-  return (
-    <View
-      style={[
-        styles.hubCard,
-        compact && styles.hubCardCompact,
-        { backgroundColor: colors.card, borderColor: colors.border },
-      ]}
-    >
-      <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel="Open property">
-        <View style={styles.statusRow}>
-          {stageLabel ? (
-            <View style={styles.scheduleBadgeRow}>
-              <PRGBadge
-                label={stageLabel}
-                variant={stageVariant ?? 'default'}
-              />
-              {stageDetail ? (
-                <Text
-                  style={[styles.tourScheduledAt, { color: colors.textSecondary }]}
-                  numberOfLines={1}
-                >
-                  {stageDetail}
-                </Text>
-              ) : null}
-            </View>
-          ) : statusLabel ? (
-            <Text style={[styles.statusPill, { color: colors.primary }]}>{statusLabel}</Text>
-          ) : null}
-        </View>
-        <Text style={[styles.hubTitle, compact && styles.hubTitleCompact, { color: colors.text }]}>
-          {propertyDisplayName(property)}
-        </Text>
-        <Text style={[styles.hubAddress, { color: colors.textSecondary }]} numberOfLines={2}>
-          {formatPropertyAddress(property)}
-        </Text>
-      </Pressable>
-      {primaryAction ? (
-        <PRGButton
-          title={primaryAction.label}
-          onPress={primaryAction.onPress}
-          variant="primary"
-          style={styles.hubPrimaryButton}
-        />
-      ) : null}
-      {secondaryAction ? (
-        <PRGButton
-          title={secondaryAction.label}
-          onPress={secondaryAction.onPress}
-          variant="secondary"
-          disabled={secondaryAction.disabled}
-          style={styles.hubSecondaryButton}
-          accessibilityLabel={secondaryAction.label}
-        />
-      ) : null}
-      <PRGButton title="Open property" onPress={onOpen} variant="ghost" />
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: typography.fontSize.base,
-    fontFamily: typography.fontFamily.regular,
-  },
-  list: {
-    flex: 1,
-  },
-  listContent: {
-    padding: spacing.md,
-    flexGrow: 1,
-  },
-  searchInput: {
-    marginBottom: spacing.md,
-  },
-  searchInputWithFilters: {
-    marginBottom: spacing.sm,
-  },
-  filterRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginBottom: spacing.md,
-  },
-  filterChip: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  filterChipText: {
-    fontSize: 11,
-    fontWeight: typography.fontWeight.medium,
-    fontFamily: typography.fontFamily.medium,
-    lineHeight: 14,
-  },
-  hubIntro: {
-    fontSize: typography.fontSize.base,
-    fontFamily: typography.fontFamily.regular,
-    lineHeight: 22,
-    marginBottom: spacing.lg,
-  },
-  section: {
-    marginBottom: spacing.lg,
-  },
-  cardGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-  },
-  cardGridItem: {
-    // Fixed half-width cells so an odd last card never stretches into the empty slot.
-    flexGrow: 0,
-    flexShrink: 0,
-    minWidth: 280,
-    width: Platform.OS === 'web' ? ('calc(50% - 8px)' as unknown as number) : '48%',
-  },
-  addCard: {
-    flex: 1,
-    minHeight: 180,
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    borderRadius: 12,
-    padding: spacing.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    ...Platform.select({
-      web: { cursor: 'pointer' as const },
-      default: {},
-    }),
-  },
-  addCardPlus: {
-    fontSize: 36,
-    fontWeight: typography.fontWeight.bold,
-    fontFamily: typography.fontFamily.bold,
-    lineHeight: 40,
-    marginBottom: spacing.xs,
-  },
-  addCardTitle: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.semibold,
-    fontFamily: typography.fontFamily.medium,
-    textAlign: 'center',
-  },
-  addCardHint: {
-    fontSize: typography.fontSize.sm,
-    fontFamily: typography.fontFamily.regular,
-    textAlign: 'center',
-  },
-  sectionLabel: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold,
-    fontFamily: typography.fontFamily.medium,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: spacing.sm,
-  },
-  hubCard: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  hubCardCompact: {
-    marginBottom: 0,
-    flex: 1,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginBottom: spacing.xs,
-  },
-  scheduleBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    flexShrink: 1,
-  },
-  tourScheduledAt: {
-    fontSize: typography.fontSize.xs,
-    fontFamily: typography.fontFamily.regular,
-    flexShrink: 1,
-  },
-  statusPill: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.semibold,
-    fontFamily: typography.fontFamily.medium,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  hubTitle: {
-    fontSize: typography.fontSize['2xl'],
-    fontWeight: typography.fontWeight.bold,
-    fontFamily: typography.fontFamily.bold,
-    marginBottom: spacing.xs,
-  },
-  hubTitleCompact: {
-    fontSize: typography.fontSize.xl,
-  },
-  hubAddress: {
-    fontSize: typography.fontSize.sm,
-    fontFamily: typography.fontFamily.regular,
-    marginBottom: spacing.sm,
-  },
-  hubPrimaryButton: {
-    marginTop: spacing.sm,
-    marginBottom: spacing.xs,
-  },
-  hubSecondaryButton: {
-    marginBottom: spacing.xs,
-  },
-  otherToggle: {
-    marginBottom: spacing.sm,
-  },
-  otherCard: {
-    marginBottom: spacing.sm,
-  },
-  cardTitle: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.semibold,
-    fontFamily: typography.fontFamily.medium,
-    marginBottom: spacing.xs,
-  },
-  cardMeta: {
-    fontSize: typography.fontSize.sm,
-    fontFamily: typography.fontFamily.regular,
-    textTransform: 'capitalize',
-  },
-  errorContainer: {
-    padding: spacing.md,
-    margin: spacing.md,
-    borderRadius: 8,
-  },
-  errorText: {
-    fontSize: typography.fontSize.sm,
-    fontFamily: typography.fontFamily.regular,
-  },
-  promptBackdrop: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.lg,
-  },
-  promptCard: {
-    width: '100%',
-    maxWidth: 400,
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: spacing.lg,
-    zIndex: 1,
-    ...Platform.select({
-      web: { boxShadow: '0 8px 32px rgba(0,0,0,0.18)' },
-      default: { elevation: 8 },
-    }),
-  },
-  promptTitle: {
-    fontSize: typography.fontSize['3xl'],
-    fontWeight: typography.fontWeight.bold,
-    fontFamily: typography.fontFamily.bold,
-    textAlign: 'center',
-    marginBottom: spacing.lg,
-  },
-  promptBody: {
-    fontSize: typography.fontSize.base,
-    fontFamily: typography.fontFamily.regular,
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: spacing.xl,
-  },
-  promptButton: {
-    marginTop: spacing.md,
-  },
-});

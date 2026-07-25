@@ -12,11 +12,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/useTheme';
 import { spacing, typography } from '../../theme';
 import {
-  toCmsDateTimeIso,
-  fromCmsDateTimeIso,
+  toDateTimeIso,
+  fromDateTimeIso,
   formatDisplayDate,
   calendarPartsFromIso,
-} from '../../utils/cmsDateTime';
+} from '../../utils/dateTime';
 
 interface DateFieldProps {
   valueISO: string | null;
@@ -38,7 +38,7 @@ function pad2(n: number): string {
 /** Editable display string for the text field (local calendar). */
 function toEditableText(iso: string | null, dateOnly: boolean): string {
   if (!iso) return '';
-  const date = fromCmsDateTimeIso(iso);
+  const date = fromDateTimeIso(iso);
   if (!date) return '';
   if (dateOnly) {
     const parts = calendarPartsFromIso(iso);
@@ -165,9 +165,9 @@ export const DateField: React.FC<DateFieldProps> = ({
   const focusedRef = useRef(false);
   const webNativePickerRef = useRef<HTMLInputElement | null>(null);
 
-  const dateValue = valueISO ? fromCmsDateTimeIso(valueISO) : null;
-  const minDate = minimumISO ? fromCmsDateTimeIso(minimumISO) || undefined : undefined;
-  const maxDate = maximumISO ? fromCmsDateTimeIso(maximumISO) || undefined : undefined;
+  const dateValue = valueISO ? fromDateTimeIso(valueISO) : null;
+  const minDate = minimumISO ? fromDateTimeIso(minimumISO) || undefined : undefined;
+  const maxDate = maximumISO ? fromDateTimeIso(maximumISO) || undefined : undefined;
 
   useEffect(() => {
     if (focusedRef.current) return;
@@ -182,7 +182,7 @@ export const DateField: React.FC<DateFieldProps> = ({
         return;
       }
       setParseError(null);
-      const iso = toCmsDateTimeIso(selectedDate, { dateOnly });
+      const iso = toDateTimeIso(selectedDate, { dateOnly });
       onChangeISO(iso);
       setText(toEditableText(iso, dateOnly));
     },

@@ -13,7 +13,7 @@ import { useDiscardableForm } from '../../../src/hooks/useDiscardableForm';
 import { spacing, typography } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
 import { isRequired } from '../../../src/utils/validation';
-import { leaseEndFromStartAndTerm } from '../../../src/utils/cmsDateTime';
+import { leaseEndFromStartAndTerm } from '../../../src/utils/dateTime';
 import { Routes } from '../../../src/navigation/routes';
 
 export default function LeaseInfoScreen() {

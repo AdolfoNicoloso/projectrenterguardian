@@ -39,6 +39,7 @@ export {
   updateSpace,
   deleteSpace,
   propertyHasInspections,
+  reorderSpaces,
 } from "./http/spaces";
 
 export {
@@ -82,6 +83,13 @@ export {
   revokePropertyMember,
   revokePropertyInvite,
 } from "./http/sharing";
+
+export {
+  createPropertyPublicShare,
+  revokePropertyPublicShare,
+  getPublicPropertyPreview,
+  getPublicFile,
+} from "./http/publicShares";
 
 export {
   listMyNotifications,

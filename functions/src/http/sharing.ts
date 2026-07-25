@@ -3,7 +3,7 @@
  */
 
 import {onRequest} from "firebase-functions/v2/https";
-import * as cms from "../firestore";
+import * as domain from "../firestore";
 import {
   FN_OPTS,
   Req,
@@ -36,16 +36,18 @@ export const createPropertyInvite = onRequest(FN_OPTS, async (req, res) => {
       role?: string;
       email?: string;
       phone?: string;
+      mode?: string;
     }>(r.body);
     if (!input.propertyId || !input.role) {
       s.status(400).json({error: "Missing propertyId or role"});
       return;
     }
-    const data = await cms.createPropertyInvite(ctx.appProfileId, {
+    const data = await domain.createPropertyInvite(ctx.appProfileId, {
       propertyId: input.propertyId,
       role: input.role,
       email: input.email,
       phone: input.phone,
+      mode: input.mode,
     });
     s.status(200).json({data});
   } catch (err: unknown) {
@@ -74,7 +76,7 @@ export const listPropertyMembers = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing propertyId"});
       return;
     }
-    const data = await cms.listPropertyPeople(ctx.appProfileId, propertyId);
+    const data = await domain.listPropertyPeople(ctx.appProfileId, propertyId);
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);
@@ -103,7 +105,7 @@ export const getPropertyInvitePreview = onRequest(FN_OPTS, async (req, res) => {
     if (!ctx) {
       return;
     }
-    const data = await cms.getInvitePreviewByToken(token);
+    const data = await domain.getInvitePreviewByToken(token);
     if (!data) {
       s.status(404).json({error: "Invite not found"});
       return;
@@ -137,7 +139,7 @@ export const acceptPropertyInvite = onRequest(FN_OPTS, async (req, res) => {
     }
     const phone =
       (ctx.decoded as {phone_number?: string}).phone_number ?? null;
-    const data = await cms.acceptPropertyInvite(
+    const data = await domain.acceptPropertyInvite(
       ctx.appProfileId,
       input.token,
       {email: ctx.decoded.email ?? null, phone}
@@ -169,7 +171,7 @@ export const updatePropertyMemberRole = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing memberId or role"});
       return;
     }
-    const data = await cms.updatePropertyMemberRole(
+    const data = await domain.updatePropertyMemberRole(
       ctx.appProfileId,
       input.memberId,
       input.role
@@ -202,7 +204,7 @@ export const revokePropertyMember = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing memberId"});
       return;
     }
-    const ok = await cms.revokePropertyMember(ctx.appProfileId, memberId);
+    const ok = await domain.revokePropertyMember(ctx.appProfileId, memberId);
     if (!ok) {
       s.status(404).json({error: "Member not found"});
       return;
@@ -235,7 +237,7 @@ export const revokePropertyInvite = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing inviteId"});
       return;
     }
-    const ok = await cms.revokePropertyInvite(ctx.appProfileId, inviteId);
+    const ok = await domain.revokePropertyInvite(ctx.appProfileId, inviteId);
     if (!ok) {
       s.status(404).json({error: "Invite not found"});
       return;

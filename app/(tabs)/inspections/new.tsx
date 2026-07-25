@@ -257,7 +257,7 @@ export default function NewInspectionStartScreen() {
           }
         />
       </ScrollView>
-      {creating && <PRGLoadingOverlay />}
+      {creating ? <PRGLoadingOverlay visible message="Creating…" /> : null}
     </View>
   );
 }

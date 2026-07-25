@@ -14,7 +14,7 @@ import {
   pickMediaFromLibraryAsync,
   uploadImagePickerAssetsBatch,
 } from '../services/mediaBatchUpload';
-import { capturedAtFromExif } from '../utils/cmsDateTime';
+import { capturedAtFromExif } from '../utils/dateTime';
 import { spacing, typography } from '../theme';
 import { useTheme } from '../theme/useTheme';
 import type { Photo } from '../types';
@@ -49,7 +49,10 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
         setLoading(true);
       }
       const status = filter === 'all' ? undefined : filter;
-      const data = await photosService.getPhotos(propertyId, { status });
+      const data = await photosService.getPhotos(propertyId, {
+        status,
+        fields: 'gallery',
+      });
       setPhotos(data);
     } catch (error) {
       console.error('Error loading photos:', error);
@@ -151,12 +154,8 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
     const fileName = document.name || `file-${Date.now()}`;
     const byteSize = typeof document.size === 'number' ? document.size : undefined;
 
-    // Videos: keep URI for direct Storage upload (no base64).
-    // DO NOT REMOVE CODE — video uploads temporarily disabled.
     if (mimeType.toLowerCase().startsWith('video/')) {
       throw new Error('Video uploads are temporarily disabled');
-      // DO NOT REMOVE CODE
-      // return { uri: document.uri, mimeType, fileName, byteSize };
     }
 
     const base64Data = await FileSystem.readAsStringAsync(document.uri, {
@@ -238,8 +237,6 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
         successCount,
         failCount,
         'photo(s)',
-        // DO NOT REMOVE CODE — video uploads temporarily disabled:
-        // 'photo(s)/video(s)',
         firstErrorMessage
       );
       if (toast) showToast(toast.message, toast.type);
@@ -256,8 +253,6 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
       ActionSheetIOS.showActionSheetWithOptions(
         {
           options: ['Cancel', 'Take Photo', 'Photo Library', 'Choose Files'],
-          // DO NOT REMOVE CODE — video uploads temporarily disabled:
-          // options: ['Cancel', 'Take Photo', 'Photo & Video Library', 'Choose Files'],
           cancelButtonIndex: 0,
         },
         (buttonIndex) => {
@@ -275,8 +270,6 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
     } else {
       Alert.alert(
         'Upload photos',
-        // DO NOT REMOVE CODE — video uploads temporarily disabled:
-        // 'Upload photos or videos',
         'Choose an option',
         [
           {
@@ -289,8 +282,6 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
           },
           {
             text: 'Photo Library',
-            // DO NOT REMOVE CODE
-            // text: 'Photo & Video Library',
             onPress: handlePickImages,
           },
           {

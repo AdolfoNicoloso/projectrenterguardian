@@ -4,7 +4,7 @@
 
 import {onRequest} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import * as cms from "../firestore";
+import * as domain from "../firestore";
 import {
   FN_OPTS,
   UPLOAD_FN_OPTS,
@@ -42,11 +42,12 @@ export const getPhotos = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing propertyId"});
       return;
     }
-    const data = await cms.listPhotosForProperty(
+    const data = await domain.listPhotosForProperty(
       ctx.appProfileId,
       propertyId,
       r.query.spaceId,
-      r.query.status
+      r.query.status,
+      r.query.fields
     );
     s.status(200).json({data});
   } catch (err: unknown) {
@@ -75,7 +76,7 @@ export const getPhoto = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing photoId"});
       return;
     }
-    const data = await cms.getPhotoForProfile(ctx.appProfileId, photoId);
+    const data = await domain.getPhotoForProfile(ctx.appProfileId, photoId);
     if (!data) {
       s.status(404).json({error: "Photo not found"});
       return;
@@ -118,7 +119,7 @@ export const uploadFile = onRequest(UPLOAD_FN_OPTS, async (req, res) => {
 
     // Property-scoped uploads require edit (owner/edit). View-only → 403.
     if (input.propertyId) {
-      await cms.requirePropertyAccess(
+      await domain.requirePropertyAccess(
         ctx.appProfileId,
         input.propertyId,
         "edit"
@@ -178,7 +179,7 @@ export const uploadFile = onRequest(UPLOAD_FN_OPTS, async (req, res) => {
     }
 
     // HTTP body limit ~32MB; base64 expands ~4/3 — keep under 15MB raw.
-    if (fileBuffer.length > cms.MAX_BASE64_UPLOAD_BYTES) {
+    if (fileBuffer.length > domain.MAX_BASE64_UPLOAD_BYTES) {
       s.status(400).json({
         error:
           "File exceeds 15 MB limit for image upload. " +
@@ -187,7 +188,7 @@ export const uploadFile = onRequest(UPLOAD_FN_OPTS, async (req, res) => {
       return;
     }
 
-    const id = await cms.uploadBinary(
+    const id = await domain.uploadBinary(
       ctx.appProfileId,
       fileBuffer,
       input.name,
@@ -201,8 +202,9 @@ export const uploadFile = onRequest(UPLOAD_FN_OPTS, async (req, res) => {
 });
 
 /**
- * Start a direct-to-Storage upload (required for videos / large files).
- * Returns a V4 signed PUT URL + media file id.
+ * Start a direct-to-Storage upload (images, videos, large files).
+ * Returns a GCS resumable upload session URL + media file id
+ * (not a V4 signed PUT — see createSignedUploadSession).
  */
 export const createMediaUpload = onRequest(FN_OPTS, async (req, res) => {
   const r = req as unknown as Req;
@@ -231,7 +233,7 @@ export const createMediaUpload = onRequest(FN_OPTS, async (req, res) => {
       return;
     }
     if (input.propertyId) {
-      await cms.requirePropertyAccess(
+      await domain.requirePropertyAccess(
         ctx.appProfileId,
         input.propertyId,
         "edit"
@@ -241,8 +243,8 @@ export const createMediaUpload = onRequest(FN_OPTS, async (req, res) => {
     const mimeType = String(input.type);
     const isVideo = mimeType.toLowerCase().startsWith("video/");
     const maxBytes = isVideo ?
-      cms.MAX_DIRECT_UPLOAD_BYTES :
-      cms.MAX_BASE64_UPLOAD_BYTES;
+      domain.MAX_DIRECT_UPLOAD_BYTES :
+      domain.MAX_BASE64_UPLOAD_BYTES;
     if (
       typeof input.size === "number" &&
       Number.isFinite(input.size) &&
@@ -256,7 +258,7 @@ export const createMediaUpload = onRequest(FN_OPTS, async (req, res) => {
       return;
     }
 
-    const session = await cms.createSignedUploadSession(
+    const session = await domain.createSignedUploadSession(
       ctx.appProfileId,
       input.name,
       mimeType,
@@ -276,7 +278,8 @@ export const createMediaUpload = onRequest(FN_OPTS, async (req, res) => {
 });
 
 /**
- * Confirm a signed PUT finished and mark media_files ready.
+ * Confirm a direct GCS upload finished and mark media_files ready
+ * (also generates thumb/display variants for images).
  */
 export const finalizeMediaUpload = onRequest(FN_OPTS, async (req, res) => {
   const r = req as unknown as Req;
@@ -299,7 +302,7 @@ export const finalizeMediaUpload = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing fileId"});
       return;
     }
-    const ok = await cms.finalizeSignedUploadForProfile(
+    const ok = await domain.finalizeSignedUploadForProfile(
       ctx.appProfileId,
       input.fileId
     );
@@ -341,7 +344,7 @@ export const deleteUploadedFile = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing fileId"});
       return;
     }
-    const ok = await cms.deleteUploadedFileForProfile(
+    const ok = await domain.deleteUploadedFileForProfile(
       ctx.appProfileId,
       input.fileId
     );
@@ -381,7 +384,7 @@ export const createPhoto = onRequest(FN_OPTS, async (req, res) => {
       notes?: string;
       notes_entries?: unknown[];
     }>(r.body);
-    const data = await cms.createPhoto(ctx.appProfileId, input);
+    const data = await domain.createPhoto(ctx.appProfileId, input);
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);
@@ -413,7 +416,7 @@ export const updatePhoto = onRequest(FN_OPTS, async (req, res) => {
       notes?: string;
       notes_entries?: unknown[];
     }>(r.body);
-    const data = await cms.updatePhoto(ctx.appProfileId, input);
+    const data = await domain.updatePhoto(ctx.appProfileId, input);
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);
@@ -441,7 +444,7 @@ export const deletePhoto = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing id"});
       return;
     }
-    const ok = await cms.deletePhotoForProfile(ctx.appProfileId, input.id);
+    const ok = await domain.deletePhotoForProfile(ctx.appProfileId, input.id);
     if (!ok) {
       s.status(404).json({error: "Photo not found"});
       return;
@@ -488,13 +491,28 @@ export const getFile = onRequest(FN_OPTS, async (req, res) => {
     }
 
     const appProfileId = await resolveProfile(decoded);
-    const allowed = await cms.canAccessFile(appProfileId, fileId);
+    const allowed = await domain.canAccessFile(appProfileId, fileId);
     if (!allowed) {
       sendImageError(s, r, 403);
       return;
     }
 
-    const downloaded = await cms.downloadByFileId(fileId);
+    const rawVariant = String(r.query.variant || "original").toLowerCase();
+    const variant: domain.MediaVariant =
+      rawVariant === "thumb" || rawVariant === "display" ?
+        rawVariant :
+        "original";
+
+    // Prefer short-lived signed GCS URL (no CF byte proxy).
+    const signedUrl = await domain.createSignedReadUrl(fileId, variant);
+    if (signedUrl) {
+      s.setHeader("Cache-Control", "private, max-age=300");
+      s.redirect(302, signedUrl);
+      return;
+    }
+
+    // Fallback: stream full buffer through the function (signing unavailable).
+    const downloaded = await domain.downloadByFileId(fileId, variant);
     if (!downloaded) {
       sendImageError(s, r, 404);
       return;
@@ -534,7 +552,7 @@ export const createAssignment = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing photo or space"});
       return;
     }
-    const data = await cms.createAssignment(
+    const data = await domain.createAssignment(
       ctx.appProfileId,
       input.photo,
       input.space
@@ -566,7 +584,7 @@ export const getAssignments = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing photoId"});
       return;
     }
-    const data = await cms.listAssignmentsForPhoto(ctx.appProfileId, photoId);
+    const data = await domain.listAssignmentsForPhoto(ctx.appProfileId, photoId);
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);

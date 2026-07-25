@@ -11,6 +11,7 @@ export * from './PRGHeader';
 export * from './PRGEditableTextRow';
 export * from './PRGToastProvider';
 export * from './PRGConfirmDialog';
+export * from './PRGImageLightbox';
 export * from './PhotoCaptureNotesSheet';
 export * from './NotesListEditor';
 export * from './ScreenContainer';

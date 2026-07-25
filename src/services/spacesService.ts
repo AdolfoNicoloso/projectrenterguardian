@@ -8,7 +8,7 @@ import type { Space } from '../types';
 class SpacesService {
   /**
    * Get all spaces for a property.
-   * Verifies property ownership before returning spaces.
+   * Verifies property access before returning spaces.
    * @param {string} propertyId The property ID.
    * @return {Promise<Space[]>} The spaces list.
    */
@@ -25,7 +25,7 @@ class SpacesService {
 
   /**
    * Create a new space for a property.
-   * Verifies property ownership before creating.
+   * Verifies property access before creating.
    * @param {object} input Space data (property, space_type, display_name).
    * @param {string} input.property The property ID.
    * @param {string} input.space_type The space type.
@@ -47,7 +47,7 @@ class SpacesService {
 
   /**
    * Update a space.
-   * Verifies property ownership before updating.
+   * Verifies property access before updating.
    * @param {string} spaceId The space ID.
    * @param {Partial<Space>} updates The fields to update.
    * @return {Promise<Space>} The updated space.
@@ -65,18 +65,35 @@ class SpacesService {
 
   /**
    * Delete a space.
-   * Verifies property ownership before deleting.
+   * Verifies property access before deleting.
    * @param {string} spaceId The space ID.
    * @return {Promise<void>}
    */
   async deleteSpace(spaceId: string): Promise<void> {
-    await backendClient.call<{ ok: boolean; message: string }>(
-      'deleteSpace',
+    await backendClient.call<{ ok: boolean; message?: string }>('deleteSpace', {
+      method: 'DELETE',
+      body: JSON.stringify({ id: spaceId }),
+    });
+  }
+
+  /**
+   * Persist a custom display order for spaces on a property.
+   * @param {string} propertyId Property id.
+   * @param {string[]} orderedSpaceIds Space ids top → bottom.
+   * @return {Promise<Space[]>} Updated spaces.
+   */
+  async reorderSpaces(
+    propertyId: string,
+    orderedSpaceIds: string[]
+  ): Promise<Space[]> {
+    const response = await backendClient.call<{ data: Space[] }>(
+      'reorderSpaces',
       {
-        method: 'DELETE',
-        body: JSON.stringify({ id: spaceId }),
+        method: 'POST',
+        body: JSON.stringify({ propertyId, orderedSpaceIds }),
       }
     );
+    return response.data || [];
   }
 }
 

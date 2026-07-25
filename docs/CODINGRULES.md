@@ -25,11 +25,11 @@ Non-negotiable rules for modifying this codebase.
 
 ### Services (`src/services/`)
 - Domain wrappers that call `backendClient` only.
-- Never import Firestore/Storage SDKs or call CMS APIs from the client.
+- Never import Firestore/Storage SDKs from the client (all data goes through Cloud Functions).
 
 ### Cloud Functions (`functions/src/`)
 - `http/` — HTTPS handlers (auth, CORS, status codes).
-- `firestore/` — ownership checks, CRUD, Storage uploads.
+- `firestore/` — property access checks, CRUD, Storage uploads (imported as `domain` in handlers).
 - Keep response shapes (`{ data: … }` snake_case) stable for the Expo app.
 
 ## 2) Backend contract
@@ -39,9 +39,9 @@ Client → Firebase Cloud Functions (Bearer ID token)
        → Firestore (metadata) + Storage (photo bytes)
 ```
 
-- Ownership is always enforced server-side via `app_profile_id` / `firebase_uid`.
+- Property access is always enforced server-side (owner or collaborator roles via `app_profile_id` / `firebase_uid`).
 - Do not add Directus or Strapi dependencies to the live path.
-- Do not put Strapi/Directus tokens in the Expo app.
+- Prefer “media” / “Firebase” wording in new code — not “CMS” (legacy Directus name).
 
 ## 3) Comments
 

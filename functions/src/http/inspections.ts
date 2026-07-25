@@ -3,7 +3,7 @@
  */
 
 import {onRequest} from "firebase-functions/v2/https";
-import * as cms from "../firestore";
+import * as domain from "../firestore";
 import {
   FN_OPTS,
   Req,
@@ -41,7 +41,7 @@ export const createInspection = onRequest(FN_OPTS, async (req, res) => {
       });
       return;
     }
-    const data = await cms.createInspection(
+    const data = await domain.createInspection(
       ctx.appProfileId,
       input.property_id,
       input.inspection_type
@@ -68,7 +68,7 @@ export const getInspections = onRequest(FN_OPTS, async (req, res) => {
     if (!ctx) {
       return;
     }
-    const data = await cms.listInspections(ctx.appProfileId, r.query.status);
+    const data = await domain.listInspections(ctx.appProfileId, r.query.status);
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);
@@ -96,7 +96,7 @@ export const getInspectionById = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing id"});
       return;
     }
-    const data = await cms.getInspectionById(ctx.appProfileId, id);
+    const data = await domain.getInspectionById(ctx.appProfileId, id);
     if (!data) {
       s.status(404).json({error: "Inspection not found"});
       return;
@@ -128,7 +128,7 @@ export const getInspectionSteps = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing inspectionId"});
       return;
     }
-    const data = await cms.listInspectionSteps(ctx.appProfileId, inspectionId);
+    const data = await domain.listInspectionSteps(ctx.appProfileId, inspectionId);
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);
@@ -157,7 +157,7 @@ export const getInspectionStep = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing inspectionId or stepKey"});
       return;
     }
-    const data = await cms.getInspectionStep(
+    const data = await domain.getInspectionStep(
       ctx.appProfileId,
       inspectionId,
       stepKey
@@ -197,7 +197,7 @@ export const updateInspectionStep = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing id"});
       return;
     }
-    const data = await cms.updateInspectionStep(ctx.appProfileId, input.id, {
+    const data = await domain.updateInspectionStep(ctx.appProfileId, input.id, {
       payload_json: input.payload_json,
       inspection_step_status: input.inspection_step_status,
     });
@@ -229,7 +229,7 @@ export const updateInspection = onRequest(FN_OPTS, async (req, res) => {
       return;
     }
     const {id, ...patch} = input;
-    const data = await cms.updateInspection(
+    const data = await domain.updateInspection(
       ctx.appProfileId,
       String(id),
       patch
@@ -261,7 +261,7 @@ export const deleteInspection = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing id"});
       return;
     }
-    const ok = await cms.deleteInspectionForProfile(ctx.appProfileId, input.id);
+    const ok = await domain.deleteInspectionForProfile(ctx.appProfileId, input.id);
     if (!ok) {
       s.status(404).json({error: "Inspection not found"});
       return;

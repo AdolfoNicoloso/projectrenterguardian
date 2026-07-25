@@ -8,7 +8,7 @@ import {
   requirePropertyAccess,
   isSpaceOnProperty,
 } from "./access";
-import {mapPhotoToClient} from "./mappers";
+import {mapPhotoToClient, mapPhotoToGalleryClient} from "./mappers";
 import {deleteMediaFile} from "./storage";
 import {
   createNoteEntry,
@@ -24,13 +24,15 @@ import {
  * @param {string} propertyId Property id.
  * @param {string|undefined} spaceId Optional space filter.
  * @param {string|undefined} statusFilter assigned | unassigned.
+ * @param {string|undefined} fields gallery = lean DTO without notes.
  * @return {Promise<Record<string, unknown>[]>} Client-shaped photos.
  */
 export async function listPhotosForProperty(
   appProfileId: string,
   propertyId: string,
   spaceId?: string,
-  statusFilter?: string
+  statusFilter?: string,
+  fields?: string
 ): Promise<Record<string, unknown>[]> {
   await requirePropertyAccess(appProfileId, propertyId, "view");
   let query = db()
@@ -42,21 +44,26 @@ export async function listPhotosForProperty(
   const snap = await query.limit(500).get();
   let photos = snap.docs
     .map((d) => snapToDoc(d))
-    .filter((d): d is NonNullable<typeof d> => d != null)
-    .map((d) => mapPhotoToClient(d));
+    .filter((d): d is NonNullable<typeof d> => d != null);
 
   if (statusFilter === "assigned") {
-    photos = photos.filter((p) => {
-      const hasSpace = p.space && String(p.space).length > 0;
-      return p.assignment_status === "confirmed" || hasSpace;
+    photos = photos.filter((d) => {
+      const hasSpace =
+        typeof d.space_id === "string" && d.space_id.length > 0;
+      return d.assignment_status === "confirmed" || hasSpace;
     });
   } else if (statusFilter === "unassigned") {
-    photos = photos.filter((p) => {
-      const hasSpace = p.space && String(p.space).length > 0;
-      return p.assignment_status === "unassigned" && !hasSpace;
+    photos = photos.filter((d) => {
+      const hasSpace =
+        typeof d.space_id === "string" && d.space_id.length > 0;
+      return d.assignment_status === "unassigned" && !hasSpace;
     });
   }
-  return photos;
+
+  const lean = fields === "gallery";
+  return photos.map((d) =>
+    lean ? mapPhotoToGalleryClient(d) : mapPhotoToClient(d)
+  );
 }
 
 /**

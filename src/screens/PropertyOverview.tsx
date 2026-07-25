@@ -4,7 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { PRGCard, PRGEditableTextRow, PRGButton, DateField, NumberPicker } from '../components';
 import { spacing, typography } from '../theme';
 import { useTheme } from '../theme/useTheme';
-import { formatDisplayDate, leaseEndFromStartAndTerm } from '../utils/cmsDateTime';
+import { formatDisplayDate, leaseEndFromStartAndTerm } from '../utils/dateTime';
 import { isValidOptionalHttpUrl } from '../utils/validation';
 import { Routes } from '../navigation/routes';
 import { PROPERTY_STATUSES, getPropertyStatusLabel, isActivePropertyStatus, isToursHubPropertyStatus, formatPropertyAddress, propertyDisplayName } from '../constants/propertyStatuses';

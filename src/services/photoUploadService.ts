@@ -1,10 +1,11 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
+import * as ImageManipulator from 'expo-image-manipulator';
 import type { ImagePickerAsset } from 'expo-image-picker';
 
 /**
  * Result of processing an image/video asset for upload.
- * Videos prefer `uri` (direct Storage upload). Images use `base64`.
+ * Prefer `uri` for direct Storage upload; `base64` is a fallback.
  */
 export interface ProcessedImage {
   base64?: string;
@@ -14,20 +15,24 @@ export interface ProcessedImage {
   byteSize?: number;
 }
 
+/** Max longest edge before client-side downscale. */
+export const MAX_UPLOAD_IMAGE_EDGE = 2048;
+
 /** Max video size for direct Storage upload (matches backend). */
 export const MAX_VIDEO_UPLOAD_BYTES = 200 * 1024 * 1024;
 
+/**
+ * Flip to `true` to re-enable video pick/upload paths.
+ * Keep disabled until product is ready; git history has the old branches.
+ */
+export const VIDEO_UPLOADS_ENABLED = false;
+
 const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|avi|mkv|3gp)$/i;
 
-/**
- * DocumentPicker type filter.
- * DO NOT REMOVE CODE — video uploads temporarily disabled; restore `video/*` to re-enable.
- */
-export const PHOTO_DOCUMENT_PICKER_TYPES = [
-  'image/*',
-  // DO NOT REMOVE CODE
-  // 'video/*',
-] as const;
+/** DocumentPicker MIME filters (images always; video when enabled). */
+export const PHOTO_DOCUMENT_PICKER_TYPES = VIDEO_UPLOADS_ENABLED
+  ? (['image/*', 'video/*'] as const)
+  : (['image/*'] as const);
 
 export function isVideoMimeType(mimeType: string | null | undefined): boolean {
   return (mimeType || '').toLowerCase().startsWith('video/');
@@ -346,18 +351,92 @@ async function convertHeicToJpeg(
 }
 
 /**
+ * Downscale images whose longest edge exceeds MAX_UPLOAD_IMAGE_EDGE.
+ * Returns null when resize is unnecessary or unavailable.
+ */
+async function resizeImageForUpload(
+  asset: ImagePickerAsset
+): Promise<ProcessedImage | null> {
+  const width = asset.width || 0;
+  const height = asset.height || 0;
+  const longest = Math.max(width, height);
+  if (!asset.uri || longest <= 0 || longest <= MAX_UPLOAD_IMAGE_EDGE) {
+    return null;
+  }
+
+  try {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+      const bitmap = await createImageBitmap(blob);
+      const scale = MAX_UPLOAD_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height);
+      const targetW = Math.max(1, Math.round(bitmap.width * scale));
+      const targetH = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(bitmap, 0, 0, targetW, targetH);
+      bitmap.close?.();
+      const outBlob: Blob | null = await new Promise((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', 0.85)
+      );
+      if (!outBlob) return null;
+      const objectUrl = URL.createObjectURL(outBlob);
+      return {
+        uri: objectUrl,
+        mimeType: 'image/jpeg',
+        fileName: (asset.fileName || `photo-${Date.now()}.jpg`).replace(
+          /\.(heic|heif|png|webp)$/i,
+          '.jpg'
+        ),
+        byteSize: outBlob.size,
+      };
+    }
+
+    const scale = MAX_UPLOAD_IMAGE_EDGE / longest;
+    const targetW = Math.max(1, Math.round(width * scale));
+    const targetH = Math.max(1, Math.round(height * scale));
+    const result = await ImageManipulator.manipulateAsync(
+      asset.uri,
+      [{ resize: { width: targetW, height: targetH } }],
+      { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    let byteSize: number | undefined;
+    try {
+      const info = await FileSystem.getInfoAsync(result.uri);
+      if (info.exists && typeof (info as { size?: number }).size === 'number') {
+        byteSize = (info as { size: number }).size;
+      }
+    } catch {
+      // ignore
+    }
+    return {
+      uri: result.uri,
+      mimeType: 'image/jpeg',
+      fileName: (asset.fileName || `photo-${Date.now()}.jpg`).replace(
+        /\.(heic|heif|png|webp)$/i,
+        '.jpg'
+      ),
+      byteSize,
+    };
+  } catch (err) {
+    console.warn('[PhotoUploadService] resize skipped:', err);
+    return null;
+  }
+}
+
+/**
  * Processes an image or video asset for upload.
  * Handles HEIC conversion on web for images; videos keep a local URI
  * for direct-to-Storage upload (base64 through Cloud Functions is too small).
- * @param asset - The image/video picker asset
- * @returns Processed media data (base64 and/or uri, mimeType, fileName)
  */
 export async function processImageForUpload(asset: ImagePickerAsset): Promise<ProcessedImage> {
   if (isVideoAsset(asset)) {
-    // DO NOT REMOVE CODE — video uploads temporarily disabled.
-    // Uncomment the block below (and remove this throw) to re-enable video processing.
-    throw new Error('Video uploads are temporarily disabled');
-    /*
+    if (!VIDEO_UPLOADS_ENABLED) {
+      throw new Error('Video uploads are temporarily disabled');
+    }
     const mimeType = guessVideoMime(asset);
     const fileName = defaultVideoFileName(asset, mimeType);
     let byteSize = typeof asset.fileSize === 'number' ? asset.fileSize : undefined;
@@ -374,7 +453,6 @@ export async function processImageForUpload(asset: ImagePickerAsset): Promise<Pr
     if (byteSize != null && byteSize > MAX_VIDEO_UPLOAD_BYTES) {
       throw new Error('Video exceeds 200 MB limit');
     }
-    // Prefer URI so we never load multi‑MB videos into base64 JSON.
     if (asset.uri) {
       return {
         uri: asset.uri,
@@ -385,7 +463,6 @@ export async function processImageForUpload(asset: ImagePickerAsset): Promise<Pr
       };
     }
     throw new Error('Video URI is missing');
-    */
   }
 
   // On web, check if we need to convert HEIC to JPEG
@@ -430,30 +507,59 @@ export async function processImageForUpload(asset: ImagePickerAsset): Promise<Pr
       }
     }
 
-    // Ensure heic2any is loaded before checking
-    const heic2anyLoaded = await loadHeic2Any();
-    
-    if (isHeic && heic2anyLoaded && heic2any) {
-      // Convert HEIC to JPEG on web
-      return await convertHeicToJpeg(asset);
-    } else if (isHeic && !heic2any) {
+    // Ensure heic2any is loaded only when HEIC is detected
+    if (isHeic) {
+      const heic2anyLoaded = await loadHeic2Any();
+
+      if (heic2anyLoaded && heic2any) {
+        return await convertHeicToJpeg(asset);
+      }
       throw new Error(
         'HEIC conversion library not loaded. Please refresh the page and try again.'
       );
     }
   }
-  
-  // Not HEIC or native platform - proceed with normal base64 conversion
+
+  // Resize large images before upload (max 2048px edge) when possible.
+  const resized = await resizeImageForUpload(asset);
+  if (resized) {
+    return resized;
+  }
+
+  // Prefer local URI for direct-to-Storage upload (avoids base64 through CF).
+  if (asset.uri && !asset.uri.startsWith('data:')) {
+    let byteSize =
+      typeof asset.fileSize === 'number' ? asset.fileSize : undefined;
+    if (byteSize == null && Platform.OS !== 'web') {
+      try {
+        const info = await FileSystem.getInfoAsync(asset.uri);
+        if (info.exists && typeof (info as { size?: number }).size === 'number') {
+          byteSize = (info as { size: number }).size;
+        }
+      } catch {
+        // size unknown
+      }
+    }
+    return {
+      uri: asset.uri,
+      mimeType: asset.mimeType || 'image/jpeg',
+      fileName: asset.fileName || `photo-${Date.now()}.jpg`,
+      byteSize,
+    };
+  }
+
+  // Data URI fallback
   if (asset.uri.startsWith('data:')) {
     const mimeType = asset.mimeType || 'image/jpeg';
     return {
       base64: asset.uri,
+      uri: asset.uri,
       mimeType,
       fileName: asset.fileName || `photo-${Date.now()}.jpg`,
     };
   }
-  
-  // Read file as base64
+
+  // Native read as base64 last resort
   const base64Data = await FileSystem.readAsStringAsync(asset.uri, {
     encoding: FileSystem.EncodingType.Base64,
   });

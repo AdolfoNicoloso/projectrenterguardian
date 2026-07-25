@@ -99,7 +99,10 @@ export default function SpaceDetailScreen() {
   const loadPhotos = useCallback(async () => {
     if (!id || !spaceId) return;
     try {
-      const spacePhotos = await photosService.getPhotos(id, { spaceId });
+      const spacePhotos = await photosService.getPhotos(id, {
+        spaceId,
+        fields: 'gallery',
+      });
       setPhotos(spacePhotos);
     } catch (error) {
       console.error('[SpaceDetailScreen] Error loading photos:', error);

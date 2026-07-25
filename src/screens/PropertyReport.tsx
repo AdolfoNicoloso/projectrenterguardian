@@ -6,7 +6,7 @@ import { reportsService } from '../services/reportsService';
 import { spacing, typography } from '../theme';
 import { useTheme } from '../theme/useTheme';
 import type { Report } from '../types';
-import { formatDisplayDate } from '../utils/cmsDateTime';
+import { formatDisplayDate } from '../utils/dateTime';
 
 interface PropertyReportProps {
   propertyId: string;

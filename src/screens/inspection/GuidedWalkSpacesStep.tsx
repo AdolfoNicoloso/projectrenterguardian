@@ -1,40 +1,28 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Alert, Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import type { ImagePickerAsset } from 'expo-image-picker';
-import { PRGButton, PRGInput, PhotoCaptureNotesSheet, useToast } from '../../components';
+import { useToast } from '../../components';
 import { spacesService } from '../../services/spacesService';
 import {
   formatBatchUploadToast,
   mediaLibraryPickerOptions,
   uploadImagePickerAssetsBatch,
 } from '../../services/mediaBatchUpload';
-import { SPACE_TYPES } from '../../constants/spaceTypes';
 import { getInspectionTypeCopy } from '../../constants/inspectionTypes';
-import { capturedAtFromExif } from '../../utils/cmsDateTime';
-import { spacing, typography } from '../../theme';
-import { useTheme } from '../../theme/useTheme';
+import { capturedAtFromExif } from '../../utils/dateTime';
 import type { Inspection, Property, Space } from '../../types';
+import { GuidedWalkAskNextPhase } from './GuidedWalkAskNextPhase';
+import { GuidedWalkCapturePhase } from './GuidedWalkCapturePhase';
+import { GuidedWalkPickPhase } from './GuidedWalkPickPhase';
+import {
+  isMoveOut,
+  type SpacesData,
+  type WalkPayload,
+  type WalkPhase,
+} from './guidedWalkTypes';
 
-type WalkPhase = 'pick' | 'capture' | 'ask_next';
-
-type SpacesData = Record<string, { photo_ids: string[]; notes?: string }>;
-
-type WalkPayload = {
-  space_ids_in_scope?: string[];
-  spaces_data?: SpacesData;
-  /** When 'existing', auto-queue existing spaces (like move-out). 'pick' forces choose-first. */
-  space_walk?: 'existing' | 'pick';
-  walk?: {
-    current_space_id?: string | null;
-    completed_space_ids?: string[];
-    phase?: WalkPhase;
-  };
-};
-
-function isMoveOut(type?: string | null) {
-  return (type || '').toLowerCase() === 'move_out';
-}
+export type { SpacesData, WalkPayload, WalkPhase } from './guidedWalkTypes';
 
 export function GuidedWalkSpacesStep({
   inspection,
@@ -56,7 +44,6 @@ export function GuidedWalkSpacesStep({
   onFinish: (spaceData: SpacesData, spaceIdsInScope: string[]) => void;
   saving: boolean;
 }) {
-  const { colors } = useTheme();
   const { showToast } = useToast();
   const copy = getInspectionTypeCopy(inspection.inspection_type);
   const moveOut = isMoveOut(inspection.inspection_type);
@@ -336,326 +323,77 @@ export function GuidedWalkSpacesStep({
   if (phase === 'capture' && currentSpace) {
     const photoCount = spacesData[currentSpace.id]?.photo_ids?.length || 0;
     return (
-      <View>
-        <Text style={[styles.stepTitle, { color: colors.text }]}>{currentSpace.display_name}</Text>
-        <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>{copy.spacesBody}</Text>
-        <Text style={[styles.progressNote, { color: colors.textSecondary }]}>
-          {completedIds.length} space{completedIds.length === 1 ? '' : 's'} done · {photoCount}{' '}
-          photo{photoCount === 1 ? '' : 's'} here
-        </Text>
-
-        {property ? (
-          <>
-            <PRGButton
-              title="Take photo"
-              onPress={handleTakePhoto}
-              disabled={uploading || saving || !!pendingCapture}
-              variant="primary"
-              style={styles.actionButton}
-            />
-            <PRGButton
-              title="Pick from library"
-              onPress={handlePickImages}
-              disabled={uploading || saving || !!pendingCapture}
-              variant="secondary"
-              style={styles.actionButton}
-            />
-          </>
-        ) : (
-          <Text style={[styles.stepNote, { color: colors.textSecondary }]}>Property not loaded</Text>
-        )}
-
-        {uploading ? (
-          <Text style={[styles.uploadingText, { color: colors.primary }]}>Uploading…</Text>
-        ) : null}
-
-        <PRGButton
-          title="Done with this space"
-          onPress={finishCurrentSpace}
-          disabled={uploading || saving || !!pendingCapture}
-          variant="secondary"
-          style={styles.continueButton}
-          accessibilityLabel="Finish documenting this space"
-        />
-
-        <PhotoCaptureNotesSheet
-          visible={!!pendingCapture}
-          previewUri={pendingCapture?.uri}
-          onCancel={() => setPendingCapture(null)}
-          onFinished={() => setPendingCapture(null)}
-          onSubmit={async ({ notes }) => {
-            if (!pendingCapture || !property || !currentSpace) return;
-            await uploadPhotosForSpace(
-              currentSpace,
-              property.id,
-              [pendingCapture],
-              [notes]
-            );
-          }}
-        />
-      </View>
+      <GuidedWalkCapturePhase
+        currentSpace={currentSpace}
+        spacesBody={copy.spacesBody}
+        completedCount={completedIds.length}
+        photoCount={photoCount}
+        property={property}
+        uploading={uploading}
+        saving={saving}
+        pendingCapture={pendingCapture}
+        onTakePhoto={handleTakePhoto}
+        onPickImages={handlePickImages}
+        onFinishSpace={finishCurrentSpace}
+        onCancelPending={() => setPendingCapture(null)}
+        onClearPending={() => setPendingCapture(null)}
+        onSubmitPending={async ({ notes }) => {
+          if (!pendingCapture || !property || !currentSpace) return;
+          await uploadPhotosForSpace(
+            currentSpace,
+            property.id,
+            [pendingCapture],
+            [notes]
+          );
+        }}
+      />
     );
   }
 
   if (phase === 'ask_next') {
-    const nextExisting = remainingExisting[0];
     return (
-      <View>
-        <Text style={[styles.stepTitle, { color: colors.text }]}>What’s next?</Text>
-        <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
-          {completedIds.length} space{completedIds.length === 1 ? '' : 's'} documented.
-          {remainingExisting.length > 0
-            ? ` ${remainingExisting.length} existing space${remainingExisting.length === 1 ? '' : 's'} still available.`
-            : ''}
-        </Text>
-
-        {nextExisting ? (
-          <PRGButton
-            title={`Continue with ${nextExisting.display_name}`}
-            onPress={() => beginSpace(nextExisting)}
-            variant="primary"
-            style={styles.actionButton}
-          />
-        ) : null}
-
-        <PRGButton
-          title="Add another space"
-          onPress={() => {
-            setPhase('pick');
-            setShowAddForm(true);
-          }}
-          variant="secondary"
-          style={styles.actionButton}
-        />
-
-        {remainingExisting.length > 1 ? (
-          <PRGButton
-            title="Choose a different space"
-            onPress={() => {
-              setPhase('pick');
-              setShowAddForm(false);
-            }}
-            variant="ghost"
-            style={styles.actionButton}
-          />
-        ) : null}
-
-        <PRGButton
-          title="No more spaces — continue"
-          onPress={finishWalk}
-          loading={saving}
-          disabled={completedIds.length === 0}
-          variant={completedIds.length === 0 ? 'secondary' : 'primary'}
-          style={styles.continueButton}
-          accessibilityLabel="Finish documenting spaces"
-        />
-      </View>
+      <GuidedWalkAskNextPhase
+        completedCount={completedIds.length}
+        remainingExisting={remainingExisting}
+        saving={saving}
+        onContinueWith={beginSpace}
+        onAddAnother={() => {
+          setPhase('pick');
+          setShowAddForm(true);
+        }}
+        onChooseDifferent={() => {
+          setPhase('pick');
+          setShowAddForm(false);
+        }}
+        onFinishWalk={finishWalk}
+      />
     );
   }
 
   // phase === 'pick'
   return (
-    <View>
-      <Text style={[styles.stepTitle, { color: colors.text }]}>{pickTitle}</Text>
-      <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>{pickBody}</Text>
-
-      {remainingExisting.length > 0 && !showAddForm ? (
-        <View style={styles.listBlock}>
-          <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
-            Existing spaces
-          </Text>
-          {remainingExisting.map((space) => (
-            <PRGButton
-              key={space.id}
-              title={space.display_name}
-              onPress={() => beginSpace(space)}
-              variant="secondary"
-              style={styles.spaceButton}
-              accessibilityLabel={`Document ${space.display_name}`}
-            />
-          ))}
-        </View>
-      ) : null}
-
-      {property?.id ? (
-        <View
-          style={[
-            styles.addSpaceCard,
-            { borderColor: colors.border, backgroundColor: colors.card },
-          ]}
-        >
-          {!showAddForm ? (
-            <PRGButton
-              title={
-                allSpaces.length === 0 || remainingExisting.length === 0
-                  ? completedIds.length === 0
-                    ? 'Add the first space'
-                    : 'Add a space'
-                  : 'Add a new space'
-              }
-              onPress={() => setShowAddForm(true)}
-              variant="primary"
-              style={styles.spaceButton}
-            />
-          ) : (
-            <View>
-              <Text style={[styles.addSpaceTitle, { color: colors.text }]}>New space</Text>
-              {formError ? (
-                <Text style={[styles.inlineError, { color: colors.error }]}>{formError}</Text>
-              ) : null}
-              <PRGInput
-                label="Display name *"
-                value={displayName}
-                onChangeText={setDisplayName}
-                placeholder="e.g., Bedroom 2, Patio"
-                autoCapitalize="words"
-              />
-              <Text style={[styles.typeLabel, { color: colors.textSecondary }]}>
-                Space type *
-              </Text>
-              <View style={styles.spaceTypeOptions}>
-                {SPACE_TYPES.map((type) => (
-                  <PRGButton
-                    key={type.value}
-                    title={type.label}
-                    onPress={() => {
-                      setSpaceType(type.value);
-                      if (type.value !== 'custom_space_type') setCustomTypeName('');
-                    }}
-                    variant={spaceType === type.value ? 'primary' : 'secondary'}
-                    style={styles.spaceTypeChip}
-                  />
-                ))}
-              </View>
-              {spaceType === 'custom_space_type' ? (
-                <PRGInput
-                  label="Custom type name *"
-                  value={customTypeName}
-                  onChangeText={setCustomTypeName}
-                  placeholder="e.g., Attic"
-                  autoCapitalize="words"
-                  maxLength={255}
-                />
-              ) : null}
-              <View style={styles.addSpaceActions}>
-                <PRGButton
-                  title="Cancel"
-                  onPress={resetForm}
-                  variant="ghost"
-                  disabled={creating}
-                  style={styles.addSpaceActionButton}
-                />
-                <PRGButton
-                  title="Save & document"
-                  onPress={handleCreateSpace}
-                  loading={creating}
-                  disabled={
-                    creating ||
-                    !displayName.trim() ||
-                    (spaceType === 'custom_space_type' && !customTypeName.trim())
-                  }
-                  style={styles.addSpaceActionButton}
-                />
-              </View>
-            </View>
-          )}
-        </View>
-      ) : null}
-
-      {completedIds.length > 0 ? (
-        <PRGButton
-          title="No more spaces — continue"
-          onPress={finishWalk}
-          loading={saving}
-          variant="secondary"
-          style={styles.continueButton}
-        />
-      ) : null}
-    </View>
+    <GuidedWalkPickPhase
+      pickTitle={pickTitle}
+      pickBody={pickBody}
+      remainingExisting={remainingExisting}
+      showAddForm={showAddForm}
+      allSpacesCount={allSpaces.length}
+      completedCount={completedIds.length}
+      property={property}
+      formError={formError}
+      displayName={displayName}
+      spaceType={spaceType}
+      customTypeName={customTypeName}
+      creating={creating}
+      saving={saving}
+      onBeginSpace={beginSpace}
+      onShowAddForm={() => setShowAddForm(true)}
+      onChangeDisplayName={setDisplayName}
+      onChangeSpaceType={setSpaceType}
+      onChangeCustomTypeName={setCustomTypeName}
+      onResetForm={resetForm}
+      onCreateSpace={handleCreateSpace}
+      onFinishWalk={finishWalk}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  stepTitle: {
-    fontSize: typography.fontSize['2xl'],
-    fontWeight: typography.fontWeight.bold,
-    marginBottom: spacing.sm,
-  },
-  stepDescription: {
-    fontSize: typography.fontSize.base,
-    marginBottom: spacing.lg,
-    lineHeight: 22,
-  },
-  stepNote: {
-    fontSize: typography.fontSize.sm,
-    marginBottom: spacing.md,
-  },
-  progressNote: {
-    fontSize: typography.fontSize.sm,
-    marginBottom: spacing.md,
-  },
-  actionButton: {
-    marginBottom: spacing.sm,
-  },
-  continueButton: {
-    marginTop: spacing.lg,
-  },
-  listBlock: {
-    marginBottom: spacing.md,
-  },
-  sectionLabel: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: spacing.sm,
-  },
-  spaceButton: {
-    marginBottom: spacing.sm,
-  },
-  addSpaceCard: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  addSpaceTitle: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.semibold,
-    marginBottom: spacing.xs,
-  },
-  typeLabel: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium,
-    marginBottom: spacing.sm,
-  },
-  spaceTypeOptions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  spaceTypeChip: {
-    marginBottom: 0,
-  },
-  addSpaceActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  addSpaceActionButton: {
-    minWidth: 100,
-  },
-  inlineError: {
-    fontSize: typography.fontSize.sm,
-    marginBottom: spacing.sm,
-    textAlign: 'center',
-  },
-  uploadingText: {
-    fontSize: typography.fontSize.sm,
-    fontStyle: 'italic',
-    marginTop: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-});

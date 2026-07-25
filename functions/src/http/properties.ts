@@ -3,7 +3,7 @@
  */
 
 import {onRequest} from "firebase-functions/v2/https";
-import * as cms from "../firestore";
+import * as domain from "../firestore";
 import {
   FN_OPTS,
   Req,
@@ -31,7 +31,7 @@ export const getMyProperties = onRequest(FN_OPTS, async (req, res) => {
     if (!ctx) {
       return;
     }
-    const data = await cms.listPropertiesForAppProfile(ctx.appProfileId);
+    const data = await domain.listPropertiesForAppProfile(ctx.appProfileId);
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);
@@ -59,7 +59,7 @@ export const getProperty = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing id"});
       return;
     }
-    const data = await cms.getPropertyForAppProfile(ctx.appProfileId, id);
+    const data = await domain.getPropertyForAppProfile(ctx.appProfileId, id);
     if (!data) {
       s.status(404).json({error: "Property not found"});
       return;
@@ -109,7 +109,7 @@ export const createProperty = onRequest(FN_OPTS, async (req, res) => {
     }
     const status = String(input.status || "active").toLowerCase();
     // Lease / tour time optional at create; set later on overview.
-    const data = await cms.createPropertyWithDefaultSpaces(ctx.appProfileId, {
+    const data = await domain.createPropertyWithDefaultSpaces(ctx.appProfileId, {
       address_free_text: input.address_free_text,
       lease_start_date: input.lease_start_date,
       lease_end_date: input.lease_end_date,
@@ -152,7 +152,7 @@ export const updateProperty = onRequest(FN_OPTS, async (req, res) => {
       return;
     }
     const {id, ...patch} = input;
-    const data = await cms.updatePropertyForAppProfile(
+    const data = await domain.updatePropertyForAppProfile(
       ctx.appProfileId,
       String(id),
       patch
@@ -184,7 +184,7 @@ export const deleteProperty = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing propertyId"});
       return;
     }
-    const ok = await cms.deletePropertyCascade(
+    const ok = await domain.deletePropertyCascade(
       ctx.appProfileId,
       input.propertyId
     );

@@ -1,6 +1,6 @@
 /**
  * Post-create wizard step: ask if they’re looking/sharing with someone,
- * then optionally send property invites. Property already exists.
+ * then optionally share a link or invite by email. Property already exists.
  */
 
 import React, { useState } from 'react';
@@ -42,7 +42,7 @@ export function InviteCollaboratorsStep({
   const { showToast } = useToast();
 
   const [phase, setPhase] = useState<'ask' | 'invite'>('ask');
-  const [contactMode, setContactMode] = useState<'email' | 'phone'>('email');
+  const [shareMethod, setShareMethod] = useState<'link' | 'email'>('link');
   const [contact, setContact] = useState('');
   const [role, setRole] = useState<PropertyMemberRole>('edit');
   const [inviting, setInviting] = useState(false);
@@ -52,8 +52,8 @@ export function InviteCollaboratorsStep({
     ? 'Looking with someone?'
     : 'Sharing this place with someone?';
   const helper = isTouring
-    ? 'Invite a roommate, partner, or co-tourer so they can follow along. You can always invite people later.'
-    : 'Invite a roommate or partner to view or edit this property. You can always invite people later.';
+    ? 'Share a link in your group chat, or invite people by email. They’ll need to sign in to join.'
+    : 'Share a link, or invite a roommate/partner by email. They’ll need to sign in to join.';
 
   const shareInvite = async (message: string, url: string) => {
     try {
@@ -67,30 +67,52 @@ export function InviteCollaboratorsStep({
 
   const handleInvite = async () => {
     if (!propertyId) return;
-    const trimmed = contact.trim();
-    if (!trimmed) {
-      showToast(
-        contactMode === 'email' ? 'Enter an email' : 'Enter a phone number',
-        'error'
-      );
+
+    if (shareMethod === 'email') {
+      const trimmed = contact.trim();
+      if (!trimmed) {
+        showToast('Enter an email', 'error');
+        return;
+      }
+      setInviting(true);
+      try {
+        const invite = await propertyMembersService.createInvite({
+          propertyId,
+          role,
+          mode: 'contact',
+          email: trimmed,
+        });
+        setContact('');
+        setInvitesSent((n) => n + 1);
+        showToast('Invite created — share the link', 'success');
+        if (invite.share_message && invite.share_url) {
+          await shareInvite(invite.share_message, invite.share_url);
+        }
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : 'Failed to create invite';
+        showToast(message, 'error');
+      } finally {
+        setInviting(false);
+      }
       return;
     }
+
     setInviting(true);
     try {
       const invite = await propertyMembersService.createInvite({
         propertyId,
         role,
-        ...(contactMode === 'email' ? { email: trimmed } : { phone: trimmed }),
+        mode: 'link',
       });
-      setContact('');
       setInvitesSent((n) => n + 1);
-      showToast('Invite created — share the link', 'success');
+      showToast('Share link ready', 'success');
       if (invite.share_message && invite.share_url) {
         await shareInvite(invite.share_message, invite.share_url);
       }
     } catch (err: unknown) {
       const message =
-        err instanceof Error ? err.message : 'Failed to create invite';
+        err instanceof Error ? err.message : 'Failed to create share link';
       showToast(message, 'error');
     } finally {
       setInviting(false);
@@ -124,10 +146,10 @@ export function InviteCollaboratorsStep({
             {phase === 'ask' ? (
               <View style={styles.choiceBlock}>
                 <PRGButton
-                  title="Yes, invite someone"
+                  title="Yes, share access"
                   onPress={() => setPhase('invite')}
                   style={styles.button}
-                  accessibilityLabel="Yes, invite someone"
+                  accessibilityLabel="Yes, share access"
                 />
                 <PRGButton
                   title="Just me"
@@ -139,36 +161,23 @@ export function InviteCollaboratorsStep({
               </View>
             ) : (
               <View style={styles.inviteBlock}>
+                <Text style={[styles.roleLabel, { color: colors.textSecondary }]}>
+                  How to share
+                </Text>
                 <View style={styles.modeRow}>
                   <PRGButton
-                    title="Email"
-                    onPress={() => setContactMode('email')}
-                    variant={contactMode === 'email' ? 'primary' : 'secondary'}
+                    title="Anyone with link"
+                    onPress={() => setShareMethod('link')}
+                    variant={shareMethod === 'link' ? 'primary' : 'secondary'}
                     style={styles.modeButton}
                   />
                   <PRGButton
-                    title="Phone"
-                    onPress={() => setContactMode('phone')}
-                    variant={contactMode === 'phone' ? 'primary' : 'secondary'}
+                    title="By email"
+                    onPress={() => setShareMethod('email')}
+                    variant={shareMethod === 'email' ? 'primary' : 'secondary'}
                     style={styles.modeButton}
                   />
                 </View>
-
-                <PRGInput
-                  label={contactMode === 'email' ? 'Email' : 'Phone'}
-                  value={contact}
-                  onChangeText={setContact}
-                  placeholder={
-                    contactMode === 'email'
-                      ? 'name@example.com'
-                      : '+1 555 555 5555'
-                  }
-                  keyboardType={
-                    contactMode === 'email' ? 'email-address' : 'phone-pad'
-                  }
-                  autoCapitalize="none"
-                  style={styles.input}
-                />
 
                 <Text style={[styles.roleLabel, { color: colors.textSecondary }]}>
                   Access
@@ -188,12 +197,34 @@ export function InviteCollaboratorsStep({
                   />
                 </View>
 
+                {shareMethod === 'email' ? (
+                  <PRGInput
+                    label="Email"
+                    value={contact}
+                    onChangeText={setContact}
+                    placeholder="name@example.com"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    style={styles.input}
+                  />
+                ) : null}
+
                 <PRGButton
-                  title={invitesSent > 0 ? 'Send another invite' : 'Send invite'}
+                  title={
+                    shareMethod === 'link'
+                      ? invitesSent > 0
+                        ? 'Create another link'
+                        : 'Create link & share'
+                      : invitesSent > 0
+                        ? 'Send another invite'
+                        : 'Send invite'
+                  }
                   onPress={() => void handleInvite()}
                   loading={inviting}
                   style={styles.button}
-                  accessibilityLabel="Send invite"
+                  accessibilityLabel={
+                    shareMethod === 'link' ? 'Create share link' : 'Send invite'
+                  }
                 />
 
                 {invitesSent > 0 ? (
@@ -201,8 +232,8 @@ export function InviteCollaboratorsStep({
                     style={[styles.sentNote, { color: colors.textSecondary }]}
                   >
                     {invitesSent === 1
-                      ? '1 invite sent. You can invite more or continue.'
-                      : `${invitesSent} invites sent. You can invite more or continue.`}
+                      ? '1 invite ready. You can share more or continue.'
+                      : `${invitesSent} invites ready. You can share more or continue.`}
                   </Text>
                 ) : null}
 

@@ -82,5 +82,10 @@ export const Routes = {
 
   /** In-app notifications inbox (hidden tab). */
   NOTIFICATIONS: '/(tabs)/notifications',
+
+  /** Public property preview (no login). */
+  SHARE: {
+    PREVIEW: (token: string) => `/share/${token}`,
+  },
 } as const;
 

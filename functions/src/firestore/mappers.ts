@@ -100,6 +100,24 @@ export function mapPhotoToClient(doc: FsDoc): Record<string, unknown> {
 }
 
 /**
+ * Lean photo DTO for grids (no notes payload).
+ * @param {FsDoc} doc Photo document.
+ * @return {Record<string, unknown>} Gallery photo.
+ */
+export function mapPhotoToGalleryClient(doc: FsDoc): Record<string, unknown> {
+  return {
+    id: doc.id,
+    property: doc.property_id ?? "",
+    space: doc.space_id ?? "",
+    file: doc.file ?? "",
+    captured_at: toIso(doc.captured_at) ?? "",
+    assignment_status: doc.assignment_status ?? "unassigned",
+    date_created: toIso(doc.date_created),
+    date_updated: toIso(doc.date_updated),
+  };
+}
+
+/**
  * @param {FsDoc} doc Report document.
  * @return {Record<string, unknown>} Client report.
  */

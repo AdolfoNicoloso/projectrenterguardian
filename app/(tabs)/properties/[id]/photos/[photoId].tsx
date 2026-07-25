@@ -1,7 +1,16 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert, Platform, Pressable } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { PRGButton, PRGHeader, PRGCard, NotesListEditor, useToast } from '../../../../../src/components';
+import {
+  PRGButton,
+  PRGHeader,
+  PRGCard,
+  PRGImageLightbox,
+  NotesListEditor,
+  openImageWithNativeZoom,
+  useToast,
+} from '../../../../../src/components';
 import { photosService } from '../../../../../src/services/photosService';
 import { spacesService } from '../../../../../src/services/spacesService';
 import { useAuthStore } from '../../../../../src/state/authStore';
@@ -9,8 +18,8 @@ import { usePropertiesStore } from '../../../../../src/state/propertiesStore';
 import { spacing, typography } from '../../../../../src/theme';
 import { useTheme } from '../../../../../src/theme/useTheme';
 import type { NoteEntry, Photo, Space } from '../../../../../src/types';
-import { getAuthenticatedCmsFileUrl, getCmsFilePlaceholderUrl } from '../../../../../src/utils/fileUrl';
-import { formatDisplayDate } from '../../../../../src/utils/cmsDateTime';
+import { getAuthenticatedMediaFileUrl, getMediaFilePlaceholderUrl } from '../../../../../src/utils/fileUrl';
+import { formatDisplayDate } from '../../../../../src/utils/dateTime';
 import { coerceNotesEntries } from '../../../../../src/utils/notes';
 import { goBackOr } from '../../../../../src/navigation/goBackOr';
 import { Routes } from '../../../../../src/navigation/routes';
@@ -29,6 +38,7 @@ export default function PhotoDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const currentUserName =
     authUser?.displayName?.trim() ||
@@ -38,11 +48,11 @@ export default function PhotoDetailScreen() {
 
   useEffect(() => {
     if (photo?.file) {
-      getAuthenticatedCmsFileUrl(photo.file)
+      getAuthenticatedMediaFileUrl(photo.file, 'display')
         .then(setImageUri)
         .catch((error) => {
           console.error('Error getting file URL:', error);
-          setImageUri(getCmsFilePlaceholderUrl(photo.file));
+          setImageUri(getMediaFilePlaceholderUrl(photo.file));
         });
     } else {
       setImageUri(null);
@@ -215,44 +225,35 @@ export default function PhotoDetailScreen() {
       />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
       {imageUri ? (
-      <Image
-          source={{ 
-            uri: imageUri,
-            cache: 'force-cache'
+        <Pressable
+          onPress={() => {
+            if (openImageWithNativeZoom(imageUri)) return;
+            setLightboxOpen(true);
           }}
-        style={styles.image}
-        resizeMode="contain"
-          onError={(error) => {
-            const errorDetails = error?.nativeEvent?.error || 'Unknown error';
-            const errorMessage = typeof errorDetails === 'string' ? errorDetails : String(errorDetails);
-            
-            // Check if it's a decoding error (corrupted/unsupported format)
-            if (errorMessage.includes('decoding') || errorMessage.includes('decode')) {
-              console.warn(`[PhotoDetail] Image decode error: ${errorMessage}`);
-              // Don't try to reload - decoding errors mean the file itself is the problem
-              return;
-            }
-            
-            // For network errors, try to reload
-            if (errorMessage.includes('Failed to load resource') || errorMessage.includes('Network')) {
-              console.warn('[PhotoDetail] Network error, attempting reload...');
-              if (imageUri && imageUri.includes('getFile')) {
-                getAuthenticatedCmsFileUrl(photo.file)
+          accessibilityRole="imagebutton"
+          accessibilityLabel="Open photo to zoom"
+        >
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.image}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            onError={() => {
+              if (imageUri && imageUri.includes('getFile') && photo?.file) {
+                getAuthenticatedMediaFileUrl(photo.file, 'display')
                   .then((newUrl) => {
                     if (newUrl !== imageUri) {
                       setImageUri(newUrl);
                     }
                   })
-                  .catch(() => {
-                    // Silently fail
-                  });
+                  .catch(() => {});
               }
-            }
-          }}
-          onLoad={() => {
-            console.log('[PhotoDetail] Image loaded successfully');
-          }}
-        />
+            }}
+          />
+          <Text style={[styles.zoomHint, { color: colors.textTertiary }]}>
+            Tap to open and zoom
+          </Text>
+        </Pressable>
       ) : (
         <View style={[styles.image, { backgroundColor: colors.backgroundTertiary, justifyContent: 'center', alignItems: 'center' }]}>
           <Text style={{ color: colors.text }}>Loading image...</Text>
@@ -309,6 +310,12 @@ export default function PhotoDetailScreen() {
           />
         </View>
       </ScrollView>
+
+      <PRGImageLightbox
+        visible={lightboxOpen}
+        uri={imageUri}
+        onClose={() => setLightboxOpen(false)}
+      />
       </View>
   );
 }
@@ -341,6 +348,12 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 300,
     borderRadius: 8,
+    marginBottom: spacing.xs,
+  },
+  zoomHint: {
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.regular,
+    textAlign: 'center',
     marginBottom: spacing.md,
   },
   label: {

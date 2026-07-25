@@ -25,7 +25,7 @@ import { useDesktopLayout } from '../../../src/hooks/useDesktopLayout';
 import { spacing, typography } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
 import type { Inspection, Property } from '../../../src/types';
-import { formatDisplayDate } from '../../../src/utils/cmsDateTime';
+import { formatDisplayDate } from '../../../src/utils/dateTime';
 import { getInspectionTypeLabel } from '../../../src/constants/inspectionTypes';
 import { propertyDisplayName } from '../../../src/constants/propertyStatuses';
 import { Routes } from '../../../src/navigation/routes';

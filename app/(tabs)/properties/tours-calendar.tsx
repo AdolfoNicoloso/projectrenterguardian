@@ -19,7 +19,7 @@ import { Routes } from '../../../src/navigation/routes';
 import { spacing, typography } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
 import type { Property } from '../../../src/types';
-import { formatDisplayDate } from '../../../src/utils/cmsDateTime';
+import { formatDisplayDate } from '../../../src/utils/dateTime';
 import {
   getTourScheduleBucket,
   hasTourScheduledAt,

@@ -13,7 +13,7 @@ import { reportsService } from '../../../src/services/reportsService';
 import { spacing, typography } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
 import type { Report } from '../../../src/types';
-import { formatDisplayDate } from '../../../src/utils/cmsDateTime';
+import { formatDisplayDate } from '../../../src/utils/dateTime';
 
 function statusBadgeVariant(
   status: Report['status']

@@ -23,7 +23,7 @@ import { Routes } from '../../../src/navigation/routes';
 import { spacing, typography, layout } from '../../../src/theme';
 import { useTheme } from '../../../src/theme/useTheme';
 import type { Report, Property } from '../../../src/types';
-import { formatDisplayDate } from '../../../src/utils/cmsDateTime';
+import { formatDisplayDate } from '../../../src/utils/dateTime';
 import { propertyDisplayName } from '../../../src/constants/propertyStatuses';
 
 function statusBadgeVariant(

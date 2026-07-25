@@ -4,14 +4,14 @@
 /* eslint-disable require-jsdoc, valid-jsdoc */
 
 import * as admin from "firebase-admin";
-import * as cms from "../firestore";
+import * as domain from "../firestore";
 
 export const REGION = "us-central1";
 /** Default options for most HTTPS handlers. */
 export const FN_OPTS = {region: REGION, cors: true as const};
 /**
- * Heavier options for base64 media uploads (still capped ~15–20MB).
- * Videos should use createMediaUpload + signed PUT instead.
+ * Heavier options for base64 media uploads (capped ~15MB).
+ * Prefer createMediaUpload + client PUT to a GCS resumable session URL.
  */
 export const UPLOAD_FN_OPTS = {
   region: REGION,
@@ -24,6 +24,7 @@ export const UPLOAD_FN_OPTS = {
 export type Res = {
   set: (name: string, value: string) => void;
   setHeader: (name: string, value: string) => void;
+  redirect: (statusOrUrl: number | string, url?: string) => void;
   status: (code: number) => {
     json: (body: unknown) => void;
     send: (body: string | Buffer) => void;
@@ -116,7 +117,7 @@ export async function resolveProfile(
 ): Promise<string> {
   const phone =
     (decoded as {phone_number?: string}).phone_number ?? null;
-  const appProfileId = await cms.getOrCreateAppProfile({
+  const appProfileId = await domain.getOrCreateAppProfile({
     uid: decoded.uid,
     email: decoded.email ?? null,
     name: displayNameFromToken(decoded),
@@ -124,7 +125,7 @@ export async function resolveProfile(
   });
   // Best-effort: pending invites → in-app notifications (no auto-accept).
   try {
-    await cms.notifyPendingInvitesForProfile(appProfileId, {
+    await domain.notifyPendingInvitesForProfile(appProfileId, {
       email: decoded.email ?? null,
       phone,
     });
@@ -200,7 +201,8 @@ export function sendErr(res: Res, req: Req, err: unknown): void {
     NOT_FOUND: "Resource not found.",
     FORBIDDEN: "Permission denied. You need edit access for this action.",
     BAD_INVITE_ROLE: "Role must be edit or view.",
-    INVITE_CONTACT_REQUIRED: "Provide either an email or a phone number.",
+    INVITE_CONTACT_REQUIRED:
+      "Provide an email, or create an open share link instead.",
     CANNOT_INVITE_OWNER: "That person already owns this property.",
     ALREADY_MEMBER: "That person is already a member.",
     INVITE_ALREADY_PENDING: "An invite is already pending for that contact.",

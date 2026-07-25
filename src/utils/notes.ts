@@ -1,5 +1,5 @@
 import type { NoteEntry } from '../types';
-import { formatDisplayDate } from './cmsDateTime';
+import { formatDisplayDate } from './dateTime';
 
 export function newClientNoteId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {

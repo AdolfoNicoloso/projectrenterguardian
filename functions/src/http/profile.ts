@@ -3,7 +3,7 @@
  */
 
 import {onRequest} from "firebase-functions/v2/https";
-import * as cms from "../firestore";
+import * as domain from "../firestore";
 import {
   FN_OPTS,
   Req,
@@ -31,7 +31,7 @@ export const smokeTest = onRequest(FN_OPTS, async (req, res) => {
       return;
     }
     const decoded = await verifyFirebaseUser(r);
-    const probe = await cms.getOrCreateAppProfile({
+    const probe = await domain.getOrCreateAppProfile({
       uid: decoded.uid,
       email: decoded.email ?? null,
       name: displayNameFromToken(decoded),
@@ -85,7 +85,7 @@ export const getAppProfile = onRequest(FN_OPTS, async (req, res) => {
     if (!ctx) {
       return;
     }
-    const data = await cms.getAppProfile(ctx.appProfileId);
+    const data = await domain.getAppProfile(ctx.appProfileId);
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);
@@ -112,7 +112,7 @@ export const updateAppProfile = onRequest(FN_OPTS, async (req, res) => {
       name?: string;
       onboarding_completed?: boolean;
     }>(r.body);
-    const data = await cms.updateAppProfile(ctx.appProfileId, input);
+    const data = await domain.updateAppProfile(ctx.appProfileId, input);
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);
@@ -135,7 +135,7 @@ export const getUserPreferences = onRequest(FN_OPTS, async (req, res) => {
     if (!ctx) {
       return;
     }
-    const data = await cms.getUserPreferences(ctx.appProfileId);
+    const data = await domain.getUserPreferences(ctx.appProfileId);
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);
@@ -162,7 +162,7 @@ export const updateUserPreferences = onRequest(FN_OPTS, async (req, res) => {
       theme_preference?: string;
       preferred_language?: string;
     }>(r.body);
-    const data = await cms.upsertUserPreferences(ctx.appProfileId, input);
+    const data = await domain.upsertUserPreferences(ctx.appProfileId, input);
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);
@@ -197,7 +197,7 @@ export const deleteAccount = onRequest(
       // Best-effort known profile id (may be missing on legacy rows).
       let knownProfileId: string | undefined;
       try {
-        const mapped = await cms.findAppProfileByFirebaseUid(decoded.uid);
+        const mapped = await domain.findAppProfileByFirebaseUid(decoded.uid);
         if (mapped && typeof mapped.id === "string") {
           knownProfileId = mapped.id;
         }
@@ -207,7 +207,7 @@ export const deleteAccount = onRequest(
           getErrorMessage(err)
         );
       }
-      const result = await cms.deleteAccountCompletely(
+      const result = await domain.deleteAccountCompletely(
         decoded.uid,
         knownProfileId
       );

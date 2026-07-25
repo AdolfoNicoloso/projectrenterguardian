@@ -3,7 +3,7 @@
  */
 
 import {onRequest} from "firebase-functions/v2/https";
-import * as cms from "../firestore";
+import * as domain from "../firestore";
 import {
   FN_OPTS,
   Req,
@@ -39,7 +39,7 @@ export const createReport = onRequest(FN_OPTS, async (req, res) => {
       context_state_code?: string;
       disclaimer_version?: string;
     }>(r.body);
-    const data = await cms.createReport(ctx.appProfileId, input);
+    const data = await domain.createReport(ctx.appProfileId, input);
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);
@@ -67,7 +67,7 @@ export const getReports = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing propertyId"});
       return;
     }
-    const data = await cms.listReportsForProperty(
+    const data = await domain.listReportsForProperty(
       ctx.appProfileId,
       propertyId
     );
@@ -98,7 +98,7 @@ export const getReportById = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing id"});
       return;
     }
-    const data = await cms.getReportById(ctx.appProfileId, id);
+    const data = await domain.getReportById(ctx.appProfileId, id);
     if (!data) {
       s.status(404).json({error: "Report not found"});
       return;

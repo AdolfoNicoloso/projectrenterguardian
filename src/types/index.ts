@@ -52,12 +52,26 @@ export interface PropertyInvite {
   property_id: string;
   role: PropertyMemberRole;
   status: string;
+  /** contact = email/phone bound; link = anyone with the link may join */
+  invite_kind?: 'contact' | 'link';
   invite_email?: string | null;
   invite_phone?: string | null;
   token: string;
   share_url?: string | null;
   share_message?: string;
   invited_by_app_profile_id?: string;
+  expires_at?: string | null;
+  date_created?: string;
+  date_updated?: string;
+}
+
+export interface PropertyPublicShare {
+  id: string;
+  property_id: string;
+  status: string;
+  token: string;
+  share_url?: string | null;
+  share_message?: string;
   expires_at?: string | null;
   date_created?: string;
   date_updated?: string;
@@ -74,6 +88,7 @@ export interface PropertyPeoplePayload {
   };
   members: PropertyMember[];
   invites: PropertyInvite[];
+  public_share?: PropertyPublicShare | null;
 }
 
 export interface NoteEntry {

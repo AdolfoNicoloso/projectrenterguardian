@@ -16,7 +16,7 @@ import { useTheme } from '../src/theme/useTheme';
 
 /**
  * Pre-auth landing: brand, logo, value prop, Get Started.
- * Mobile: stacked phone layout. Desktop web: split brand+CTA | illustration.
+ * Mobile: stacked phone layout. Desktop web: illustration | brand+CTA.
  */
 export default function WelcomeScreen() {
   const router = useRouter();
@@ -119,7 +119,7 @@ export default function WelcomeScreen() {
       ]}
     >
       <Image
-        source={require('../assets/welcome-illustration.png')}
+        source={require('../assets/welcome-illustration.jpg')}
         style={[styles.heroImage, isDesktop && styles.heroImageDesktop]}
         resizeMode="contain"
         accessibilityLabel="Inspector with checklist illustration"
@@ -191,11 +191,11 @@ export default function WelcomeScreen() {
       >
         {isDesktop ? (
           <View style={styles.desktopSplit}>
+            {heroBlock}
             <View style={styles.desktopCopy}>
               {brandBlock}
               {ctaBlock}
             </View>
-            {heroBlock}
           </View>
         ) : (
           <View style={styles.content}>
@@ -258,6 +258,7 @@ const styles = StyleSheet.create({
     flex: 1,
     maxWidth: 440,
     justifyContent: 'center',
+    alignItems: 'center',
     gap: spacing.xl,
   },
   brandBlock: {
@@ -266,17 +267,18 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
   },
   brandBlockDesktop: {
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingTop: 0,
   },
   logo: {
-    width: 56,
-    height: 56,
+    width: 72,
+    height: 72,
     marginBottom: spacing.md,
   },
   logoDesktop: {
-    width: 64,
-    height: 64,
+    width: 120,
+    height: 120,
+    marginBottom: spacing.lg,
   },
   brandName: {
     fontSize: typography.fontSize['4xl'],
@@ -287,7 +289,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   brandNameDesktop: {
-    textAlign: 'left',
+    textAlign: 'center',
     fontSize: 48,
     lineHeight: 54,
   },
@@ -299,7 +301,7 @@ const styles = StyleSheet.create({
     maxWidth: 320,
   },
   valuePropDesktop: {
-    textAlign: 'left',
+    textAlign: 'center',
     maxWidth: 400,
     fontSize: typography.fontSize.xl,
     lineHeight: 30,
@@ -333,6 +335,8 @@ const styles = StyleSheet.create({
   ctaBlockDesktop: {
     paddingBottom: 0,
     maxWidth: 320,
+    alignSelf: 'center',
+    width: '100%',
   },
   primaryCta: {
     width: '100%',

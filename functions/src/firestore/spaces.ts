@@ -31,7 +31,14 @@ export async function listSpacesForProperty(
   const rows = snap.docs
     .map((d) => snapToDoc(d))
     .filter((d): d is NonNullable<typeof d> => d != null);
-  rows.sort((a, b) => Number(a.ordinal ?? 999) - Number(b.ordinal ?? 999));
+  rows.sort((a, b) => {
+    const oa = Number(a.ordinal ?? 999);
+    const ob = Number(b.ordinal ?? 999);
+    if (oa !== ob) return oa - ob;
+    return String(a.date_created || "").localeCompare(
+      String(b.date_created || "")
+    );
+  });
   return rows.map((d) => mapSpaceToClient(d));
 }
 
@@ -56,11 +63,29 @@ export async function createSpaceForProperty(
     throw new Error("BAD_SPACE_TYPE");
   }
   await requirePropertyAccess(appProfileId, input.property, "edit");
+
+  // Append after the current max ordinal so new spaces land at the bottom.
+  const existingSnap = await db()
+    .collection("spaces")
+    .where("property_id", "==", input.property)
+    .limit(200)
+    .get();
+  let nextOrdinal = 0;
+  for (const d of existingSnap.docs) {
+    const doc = snapToDoc(d);
+    if (!doc) continue;
+    const o = Number(doc.ordinal);
+    if (Number.isFinite(o) && o >= nextOrdinal) {
+      nextOrdinal = o + 1;
+    }
+  }
+
   const ts = nowIso();
   const data: Record<string, unknown> = {
     property_id: input.property,
     space_type: input.space_type,
     display_name: String(input.display_name).trim(),
+    ordinal: nextOrdinal,
     date_created: ts,
     date_updated: ts,
   };
@@ -110,7 +135,11 @@ export async function updateSpaceForProfile(
     data.custom_space_type = patch.custom_space_type;
   }
   if (patch.ordinal !== undefined) {
-    data.ordinal = patch.ordinal;
+    const n = Number(patch.ordinal);
+    if (!Number.isFinite(n) || n < 0) {
+      throw new Error("VALIDATION");
+    }
+    data.ordinal = Math.floor(n);
   }
   if (patch.is_default !== undefined) {
     data.is_default = patch.is_default;
@@ -221,4 +250,55 @@ export async function propertyHasInspections(
     .limit(1)
     .get();
   return !snap.empty;
+}
+
+/**
+ * Persist a custom space order for a property (drag-and-drop).
+ * @param {string} appProfileId Caller.
+ * @param {string} propertyId Property id.
+ * @param {string[]} orderedSpaceIds Space ids in desired order.
+ * @return {Promise<Record<string, unknown>[]>} Updated spaces list.
+ */
+export async function reorderSpacesForProperty(
+  appProfileId: string,
+  propertyId: string,
+  orderedSpaceIds: string[]
+): Promise<Record<string, unknown>[]> {
+  if (!Array.isArray(orderedSpaceIds) || orderedSpaceIds.length === 0) {
+    throw new Error("VALIDATION");
+  }
+  await requirePropertyAccess(appProfileId, propertyId, "edit");
+
+  const uniqueIds = [...new Set(orderedSpaceIds.map(String))];
+  const snaps = await Promise.all(
+    uniqueIds.map((id) => db().collection("spaces").doc(id).get())
+  );
+
+  for (let i = 0; i < snaps.length; i++) {
+    const doc = snapToDoc(snaps[i]);
+    if (!doc || String(doc.property_id || "") !== propertyId) {
+      throw new Error("FORBIDDEN");
+    }
+  }
+
+  const ts = nowIso();
+  let batch = db().batch();
+  let ops = 0;
+  for (let i = 0; i < uniqueIds.length; i++) {
+    batch.update(db().collection("spaces").doc(uniqueIds[i]), {
+      ordinal: i,
+      date_updated: ts,
+    });
+    ops += 1;
+    if (ops >= 400) {
+      await batch.commit();
+      batch = db().batch();
+      ops = 0;
+    }
+  }
+  if (ops > 0) {
+    await batch.commit();
+  }
+
+  return listSpacesForProperty(appProfileId, propertyId);
 }

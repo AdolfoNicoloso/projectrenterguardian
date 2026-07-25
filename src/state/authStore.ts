@@ -175,6 +175,15 @@ export const useAuthStore = create<AuthState>((set) => ({
       } catch (error) {
         console.error('Error clearing properties cache:', error);
       }
+
+      try {
+        const { clearAuthenticatedMediaFileUrlCache } = await import(
+          '../utils/fileUrl'
+        );
+        clearAuthenticatedMediaFileUrlCache();
+      } catch {
+        // ignore
+      }
       
       // Update state - delay if requested (for showing logout message)
       if (delayStateUpdate) {

@@ -15,7 +15,7 @@ import {
   uploadImagePickerAssetsBatch,
 } from '../../../../../../src/services/mediaBatchUpload';
 import { usePropertiesStore } from '../../../../../../src/state/propertiesStore';
-import { capturedAtFromExif } from '../../../../../../src/utils/cmsDateTime';
+import { capturedAtFromExif } from '../../../../../../src/utils/dateTime';
 import { canEditProperty } from '../../../../../../src/utils/propertyAccess';
 import { spacing, typography } from '../../../../../../src/theme';
 import { useTheme } from '../../../../../../src/theme/useTheme';
@@ -67,7 +67,10 @@ export default function AddPhotosScreen() {
     try {
       setLoading(true);
       const status = filter === 'all' ? undefined : filter;
-      const data = await photosService.getPhotos(id, { status });
+      const data = await photosService.getPhotos(id, {
+        status,
+        fields: 'gallery',
+      });
       setPhotos(data);
     } catch (error) {
       console.error('Error loading photos:', error);
@@ -173,10 +176,7 @@ export default function AddPhotosScreen() {
     const byteSize = typeof document.size === 'number' ? document.size : undefined;
 
     if (mimeType.toLowerCase().startsWith('video/')) {
-      // DO NOT REMOVE CODE — video uploads temporarily disabled.
       throw new Error('Video uploads are temporarily disabled');
-      // DO NOT REMOVE CODE
-      // return { uri: document.uri, mimeType, fileName, byteSize };
     }
 
     const base64Data = await FileSystem.readAsStringAsync(document.uri, {
@@ -242,8 +242,6 @@ export default function AddPhotosScreen() {
       ActionSheetIOS.showActionSheetWithOptions(
         {
           options: ['Cancel', 'Take Photo', 'Photo Library', 'Choose Files'],
-          // DO NOT REMOVE CODE — video uploads temporarily disabled:
-          // options: ['Cancel', 'Take Photo', 'Photo & Video Library', 'Choose Files'],
           cancelButtonIndex: 0,
         },
         (buttonIndex) => {
@@ -262,8 +260,6 @@ export default function AddPhotosScreen() {
     } else {
       Alert.alert(
         'Upload photos',
-        // DO NOT REMOVE CODE — video uploads temporarily disabled:
-        // 'Upload photos or videos',
         'Choose an option',
         [
           {
@@ -276,8 +272,6 @@ export default function AddPhotosScreen() {
           },
           {
             text: 'Photo Library',
-            // DO NOT REMOVE CODE
-            // text: 'Photo & Video Library',
             onPress: handlePickImages,
           },
           {
@@ -315,8 +309,6 @@ export default function AddPhotosScreen() {
         successCount,
         failCount,
         'photo(s)',
-        // DO NOT REMOVE CODE — video uploads temporarily disabled:
-        // 'photo(s)/video(s)',
         firstErrorMessage
       );
       if (toast) showToast(toast.message, toast.type);
@@ -446,6 +438,7 @@ export default function AddPhotosScreen() {
             onPhotoSelect={() => {}}
             showSelection={false}
             enablePreviewOnLongPress={true}
+            enablePreviewOnTap={false}
           />
         )}
       </ScrollView>

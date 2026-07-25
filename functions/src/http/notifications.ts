@@ -3,7 +3,7 @@
  */
 
 import {onRequest} from "firebase-functions/v2/https";
-import * as cms from "../firestore";
+import * as domain from "../firestore";
 import {
   FN_OPTS,
   Req,
@@ -33,7 +33,7 @@ export const listMyNotifications = onRequest(FN_OPTS, async (req, res) => {
     }
     const limitRaw = r.query.limit;
     const limit = limitRaw ? Number(limitRaw) : undefined;
-    const data = await cms.listNotificationsForProfile(ctx.appProfileId, {
+    const data = await domain.listNotificationsForProfile(ctx.appProfileId, {
       limit: Number.isFinite(limit) ? limit : undefined,
     });
     s.status(200).json({data});
@@ -60,7 +60,7 @@ export const markNotificationRead = onRequest(FN_OPTS, async (req, res) => {
     }
     const input = parseBody<{notificationId?: string; all?: boolean}>(r.body);
     if (input.all) {
-      const marked = await cms.markAllNotificationsRead(ctx.appProfileId);
+      const marked = await domain.markAllNotificationsRead(ctx.appProfileId);
       s.status(200).json({data: {marked}});
       return;
     }
@@ -68,7 +68,7 @@ export const markNotificationRead = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing notificationId"});
       return;
     }
-    const data = await cms.markNotificationRead(
+    const data = await domain.markNotificationRead(
       ctx.appProfileId,
       input.notificationId
     );

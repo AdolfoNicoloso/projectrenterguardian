@@ -8,11 +8,11 @@ import { checkGoogleRedirect } from '../src/services/googleAuth';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PRGToastProvider } from '../src/components';
 import { NotificationsBootstrap } from '../src/components/NotificationsBootstrap';
-import { useTheme } from '../src/theme/useTheme';
+import { ThemeProvider, useTheme } from '../src/theme';
 import { typography } from '../src/theme/typography';
 import { FONT_CONFIG } from '../src/theme/fonts';
 
-export default function RootLayout() {
+function RootLayoutInner() {
   const { checkAuth, signInWithGoogle } = useAuthStore();
   const { isDark } = useTheme();
 
@@ -96,8 +96,8 @@ export default function RootLayout() {
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <PRGToastProvider>
         <NotificationsBootstrap>
-          <Stack 
-            screenOptions={{ 
+          <Stack
+            screenOptions={{
               headerShown: false,
               // Note: Using native iOS animations (default behavior)
               // Do not add custom animation/presentation settings here
@@ -109,10 +109,19 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="onboarding" />
             <Stack.Screen name="invite/[token]" />
+            <Stack.Screen name="share/[token]" />
             <Stack.Screen name="legal/[doc]" />
           </Stack>
         </NotificationsBootstrap>
       </PRGToastProvider>
     </SafeAreaProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <ThemeProvider>
+      <RootLayoutInner />
+    </ThemeProvider>
   );
 }

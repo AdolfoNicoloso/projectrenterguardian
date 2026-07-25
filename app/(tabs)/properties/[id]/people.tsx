@@ -16,7 +16,8 @@ import {
   useToast,
 } from '../../../../src/components';
 import { propertyMembersService } from '../../../../src/services/propertyMembersService';
-import { getInviteWebUrl } from '../../../../src/config/webApp';
+import { publicShareService } from '../../../../src/services/publicShareService';
+import { getInviteWebUrl, getPublicShareWebUrl } from '../../../../src/config/webApp';
 import { useProperty } from '../../../../src/hooks/usePropertiesQuery';
 import { spacing, typography } from '../../../../src/theme';
 import { useTheme } from '../../../../src/theme/useTheme';
@@ -28,7 +29,13 @@ import type {
   PropertyMember,
   PropertyMemberRole,
   PropertyPeoplePayload,
+  PropertyPublicShare,
 } from '../../../../src/types';
+
+function isLinkInvite(invite: PropertyInvite): boolean {
+  if (invite.invite_kind === 'link') return true;
+  return !invite.invite_email && !invite.invite_phone;
+}
 
 export default function PropertyPeopleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -39,7 +46,9 @@ export default function PropertyPeopleScreen() {
 
   const [people, setPeople] = useState<PropertyPeoplePayload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [contactMode, setContactMode] = useState<'email' | 'phone'>('email');
+  const [shareMethod, setShareMethod] = useState<'link' | 'email' | 'public'>(
+    'link'
+  );
   const [contact, setContact] = useState('');
   const [role, setRole] = useState<PropertyMemberRole>('view');
   const [inviting, setInviting] = useState(false);
@@ -100,29 +109,66 @@ export default function PropertyPeopleScreen() {
 
   const handleInvite = async () => {
     if (!propertyId || !canInvite) return;
-    const trimmed = contact.trim();
-    if (!trimmed) {
-      showToast(
-        contactMode === 'email' ? 'Enter an email' : 'Enter a phone number',
-        'error'
-      );
+
+    if (shareMethod === 'public') {
+      setInviting(true);
+      try {
+        const share = await publicShareService.create(propertyId);
+        showToast('Public view link ready — no login required', 'success');
+        await load();
+        if (share.share_message && share.share_url) {
+          await shareInvite(share.share_message, share.share_url);
+        }
+      } catch (err: any) {
+        showToast(err?.message || 'Failed to create public link', 'error');
+      } finally {
+        setInviting(false);
+      }
       return;
     }
+
+    if (shareMethod === 'email') {
+      const trimmed = contact.trim();
+      if (!trimmed) {
+        showToast('Enter an email', 'error');
+        return;
+      }
+      setInviting(true);
+      try {
+        const invite = await propertyMembersService.createInvite({
+          propertyId,
+          role,
+          mode: 'contact',
+          email: trimmed,
+        });
+        showToast('Invite created — share the link', 'success');
+        setContact('');
+        await load();
+        if (invite.share_message && invite.share_url) {
+          await shareInvite(invite.share_message, invite.share_url);
+        }
+      } catch (err: any) {
+        showToast(err?.message || 'Failed to create invite', 'error');
+      } finally {
+        setInviting(false);
+      }
+      return;
+    }
+
     setInviting(true);
     try {
       const invite = await propertyMembersService.createInvite({
         propertyId,
         role,
-        ...(contactMode === 'email' ? { email: trimmed } : { phone: trimmed }),
+        mode: 'link',
       });
-      showToast('Invite created — share the link', 'success');
-      setContact('');
+      showToast('Share link ready', 'success');
       await load();
       if (invite.share_message && invite.share_url) {
         await shareInvite(invite.share_message, invite.share_url);
       }
     } catch (err: any) {
-      showToast(err?.message || 'Failed to create invite', 'error');
+      showToast(err?.message || 'Failed to create share link', 'error');
     } finally {
       setInviting(false);
     }
@@ -173,10 +219,32 @@ export default function PropertyPeopleScreen() {
     }
   };
 
+  const handleRevokePublicShare = async (share: PropertyPublicShare) => {
+    if (!canInvite) return;
+    try {
+      await publicShareService.revoke(share.id);
+      showToast('Public link revoked', 'success');
+      await load();
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to revoke public link', 'error');
+    }
+  };
+
+  const resharePublic = async (share: PropertyPublicShare) => {
+    const url = share.share_url || getPublicShareWebUrl(share.token);
+    const label = property ? propertyDisplayName(property) : 'a property';
+    const message = `Check out ${label} on Renter Guardian (no account needed): ${url}`;
+    await shareInvite(message, url);
+  };
+
   const reshareInvite = async (invite: PropertyInvite) => {
     const url = invite.share_url || getInviteWebUrl(invite.token);
     const label = property ? propertyDisplayName(property) : 'a property';
-    const message = `You've been invited to ${label} on Renter Guardian. Open this link to accept: ${url}`;
+    const open = isLinkInvite(invite);
+    const access = invite.role === 'edit' ? 'edit access' : 'view-only access';
+    const message = open
+      ? `Join ${label} on Renter Guardian (${access}). Sign in, then open this link: ${url}`
+      : `You've been invited to ${label} on Renter Guardian. Open this link to accept: ${url}`;
     await shareInvite(message, url);
   };
 
@@ -273,91 +341,177 @@ export default function PropertyPeopleScreen() {
                 No pending invites.
               </Text>
             ) : (
-              (people?.invites || []).map((invite) => (
-                <View
-                  key={invite.id}
-                  style={[
-                    styles.card,
-                    { borderColor: colors.border, backgroundColor: colors.card },
-                  ]}
-                >
-                  <Text style={[styles.name, { color: colors.text }]}>
-                    {invite.invite_email || invite.invite_phone}
-                  </Text>
-                  <Text style={[styles.role, { color: colors.primary }]}>
-                    {invite.role === 'edit' ? 'Edit' : 'View only'}
-                  </Text>
-                  <View style={styles.rowActions}>
-                    <PRGButton
-                      title="Share again"
-                      onPress={() => reshareInvite(invite)}
-                      variant="secondary"
-                      style={styles.smallButton}
-                    />
-                    {isOwner ? (
+              (people?.invites || []).map((invite) => {
+                const open = isLinkInvite(invite);
+                return (
+                  <View
+                    key={invite.id}
+                    style={[
+                      styles.card,
+                      { borderColor: colors.border, backgroundColor: colors.card },
+                    ]}
+                  >
+                    <Text style={[styles.name, { color: colors.text }]}>
+                      {open
+                        ? 'Anyone with the link'
+                        : invite.invite_email || invite.invite_phone}
+                    </Text>
+                    <Text style={[styles.meta, { color: colors.textSecondary }]}>
+                      {open
+                        ? 'Join link · requires sign-in'
+                        : 'Email invite · single use · requires sign-in'}
+                    </Text>
+                    <Text style={[styles.role, { color: colors.primary }]}>
+                      {invite.role === 'edit' ? 'Edit' : 'View only'}
+                    </Text>
+                    <View style={styles.rowActions}>
                       <PRGButton
-                        title="Revoke"
-                        onPress={() => handleRevokeInvite(invite)}
-                        variant="ghost"
+                        title="Share again"
+                        onPress={() => reshareInvite(invite)}
+                        variant="secondary"
                         style={styles.smallButton}
                       />
-                    ) : null}
+                      {isOwner ? (
+                        <PRGButton
+                          title="Revoke"
+                          onPress={() => handleRevokeInvite(invite)}
+                          variant="ghost"
+                          style={styles.smallButton}
+                        />
+                      ) : null}
+                    </View>
                   </View>
+                );
+              })
+            )}
+
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Public view link
+            </Text>
+            {people?.public_share ? (
+              <View
+                style={[
+                  styles.card,
+                  { borderColor: colors.border, backgroundColor: colors.card },
+                ]}
+              >
+                <Text style={[styles.name, { color: colors.text }]}>
+                  Anyone with the link
+                </Text>
+                <Text style={[styles.meta, { color: colors.textSecondary }]}>
+                  Preview only · no account required
+                </Text>
+                <Text style={[styles.role, { color: colors.primary }]}>
+                  Public view
+                </Text>
+                <View style={styles.rowActions}>
+                  <PRGButton
+                    title="Share again"
+                    onPress={() => resharePublic(people.public_share!)}
+                    variant="secondary"
+                    style={styles.smallButton}
+                  />
+                  {canInvite ? (
+                    <PRGButton
+                      title="Revoke"
+                      onPress={() => handleRevokePublicShare(people.public_share!)}
+                      variant="ghost"
+                      style={styles.smallButton}
+                    />
+                  ) : null}
                 </View>
-              ))
+              </View>
+            ) : (
+              <Text style={[styles.empty, { color: colors.textSecondary }]}>
+                No public view link yet.
+              </Text>
             )}
 
             {canInvite ? (
               <View style={styles.inviteBlock}>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                  Add someone
+                  Share access
                 </Text>
                 <Text style={[styles.help, { color: colors.textSecondary }]}>
-                  They’ll get a shareable link. Open it after signing in with the
-                  same email or phone to accept.
+                  Invite collaborators (sign-in required), or create a public
+                  view link anyone can open without an account.
+                </Text>
+
+                <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+                  How to share
                 </Text>
                 <View style={styles.modeRow}>
                   <PRGButton
-                    title="Email"
-                    onPress={() => setContactMode('email')}
-                    variant={contactMode === 'email' ? 'primary' : 'secondary'}
+                    title="Join link"
+                    onPress={() => setShareMethod('link')}
+                    variant={shareMethod === 'link' ? 'primary' : 'secondary'}
                     style={styles.modeButton}
                   />
                   <PRGButton
-                    title="Phone"
-                    onPress={() => setContactMode('phone')}
-                    variant={contactMode === 'phone' ? 'primary' : 'secondary'}
+                    title="By email"
+                    onPress={() => setShareMethod('email')}
+                    variant={shareMethod === 'email' ? 'primary' : 'secondary'}
                     style={styles.modeButton}
                   />
                 </View>
-                <PRGInput
-                  label={contactMode === 'email' ? 'Email' : 'Phone'}
-                  value={contact}
-                  onChangeText={setContact}
-                  placeholder={
-                    contactMode === 'email' ? 'name@example.com' : '+1 555 555 5555'
-                  }
-                  keyboardType={
-                    contactMode === 'email' ? 'email-address' : 'phone-pad'
-                  }
-                  autoCapitalize="none"
-                />
                 <View style={styles.modeRow}>
                   <PRGButton
-                    title="View only"
-                    onPress={() => setRole('view')}
-                    variant={role === 'view' ? 'primary' : 'secondary'}
-                    style={styles.modeButton}
-                  />
-                  <PRGButton
-                    title="Edit"
-                    onPress={() => setRole('edit')}
-                    variant={role === 'edit' ? 'primary' : 'secondary'}
+                    title="Public view (no login)"
+                    onPress={() => setShareMethod('public')}
+                    variant={shareMethod === 'public' ? 'primary' : 'secondary'}
                     style={styles.modeButton}
                   />
                 </View>
+
+                {shareMethod !== 'public' ? (
+                  <>
+                    <Text
+                      style={[styles.fieldLabel, { color: colors.textSecondary }]}
+                    >
+                      Access level
+                    </Text>
+                    <View style={styles.modeRow}>
+                      <PRGButton
+                        title="View only"
+                        onPress={() => setRole('view')}
+                        variant={role === 'view' ? 'primary' : 'secondary'}
+                        style={styles.modeButton}
+                      />
+                      <PRGButton
+                        title="Edit"
+                        onPress={() => setRole('edit')}
+                        variant={role === 'edit' ? 'primary' : 'secondary'}
+                        style={styles.modeButton}
+                      />
+                    </View>
+                  </>
+                ) : null}
+
+                {shareMethod === 'email' ? (
+                  <PRGInput
+                    label="Email"
+                    value={contact}
+                    onChangeText={setContact}
+                    placeholder="name@example.com"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                ) : (
+                  <Text style={[styles.help, { color: colors.textSecondary }]}>
+                    {shareMethod === 'public'
+                      ? 'Creates a pasteable link. Anyone can open it to view the property, spaces, and photos — no sign-in. Creating again replaces the previous public link.'
+                      : 'Creates a pasteable join link. Recipients must sign in to accept. Creating again replaces the previous join link for that access level.'}
+                  </Text>
+                )}
+
                 <PRGButton
-                  title="Create invite & share"
+                  title={
+                    shareMethod === 'public'
+                      ? 'Create public link & share'
+                      : shareMethod === 'link'
+                        ? 'Create link & share'
+                        : 'Send invite & share'
+                  }
                   onPress={handleInvite}
                   loading={inviting}
                   style={styles.inviteButton}
@@ -434,6 +588,11 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.sm,
     lineHeight: 20,
     marginBottom: spacing.md,
+  },
+  fieldLabel: {
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.medium,
+    marginBottom: spacing.xs,
   },
   modeRow: {
     flexDirection: 'row',

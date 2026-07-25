@@ -20,6 +20,8 @@ export const propertyMembersService = {
     role: PropertyMemberRole;
     email?: string;
     phone?: string;
+    /** contact (default) or link (anyone with the link may join) */
+    mode?: 'contact' | 'link';
   }): Promise<PropertyInvite & { share_message?: string; share_url?: string }> {
     const response = await backendClient.call<{
       data: PropertyInvite & { share_message?: string; share_url?: string };
@@ -34,6 +36,7 @@ export const propertyMembersService = {
     token: string;
     role: string;
     status: string;
+    invite_kind?: 'contact' | 'link';
     invite_email?: string | null;
     invite_phone?: string | null;
     expires_at?: string | null;

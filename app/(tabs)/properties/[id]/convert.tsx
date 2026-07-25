@@ -18,7 +18,7 @@ import {
 import { spacing, typography } from '../../../../src/theme';
 import { useTheme } from '../../../../src/theme/useTheme';
 import { isRequired } from '../../../../src/utils/validation';
-import { leaseEndFromStartAndTerm } from '../../../../src/utils/cmsDateTime';
+import { leaseEndFromStartAndTerm } from '../../../../src/utils/dateTime';
 import type { Property } from '../../../../src/types';
 
 /**

@@ -1,63 +1,21 @@
-# HEIC to JPEG Conversion Setup
+# HEIC handling
 
-## What Was Implemented
+## Current behavior (authoritative)
 
-The `uploadFile` Firebase Function now automatically converts HEIC/HEIF files to JPEG format before uploading to Directus. This ensures compatibility with React Native's Image component and web browsers.
+HEIC/HEIF is converted on the **client** before upload—not on Cloud Functions and not to Directus.
 
-## Changes Made
+1. On web, [`src/services/photoUploadService.ts`](../src/services/photoUploadService.ts) detects HEIC (MIME, extension, or file signature) and loads `heic2any` only when needed.
+2. Native pickers typically return a JPEG-compatible representation when using Compatible mode.
+3. The server **rejects** HEIC uploads on the base64 `uploadFile` path; upload JPEG (or another non-HEIC image type).
+4. `sharp` in Functions is used to generate **thumb** / **display** variants after upload—not for HEIC conversion.
 
-1. **Added `sharp` dependency** to `functions/package.json`
-2. **Added HEIC detection** in the upload function
-3. **Implemented automatic conversion** from HEIC/HEIF to JPEG
-4. **Updated filename and MIME type** after conversion
+See [CURRENT_ARCHITECTURE.md](./CURRENT_ARCHITECTURE.md) for the full media pipeline.
 
-## Installation Required
+## Troubleshooting
 
-Before deploying, you need to install the `sharp` package:
+- If HEIC fails on web: ensure `heic2any` is installed and the page can load it; refresh and retry.
+- Prefer converting on-device or using Compatible picker representation so the upload path never sees HEIC.
 
-```bash
-cd functions
-npm install
-```
+## Historical note
 
-This will install `sharp` and its dependencies.
-
-## How It Works
-
-1. **Detection**: The function checks if the uploaded file is HEIC/HEIF by:
-   - MIME type (`image/heic`, `image/heif`)
-   - File extension (`.heic`, `.heif`)
-
-2. **Conversion**: If HEIC is detected:
-   - Uses `sharp` to convert to JPEG with 90% quality
-   - Updates the filename (`.heic` → `.jpg`)
-   - Updates the MIME type (`image/heic` → `image/jpeg`)
-
-3. **Upload**: The converted JPEG is uploaded to Directus instead of the original HEIC file
-
-## Benefits
-
-- ✅ HEIC files are automatically converted to a compatible format
-- ✅ No client-side changes needed
-- ✅ Users can upload HEIC files from iOS devices without issues
-- ✅ All images display correctly in the app
-
-## Testing
-
-After deployment, test by:
-1. Uploading a HEIC file from an iOS device
-2. Checking that the image displays correctly in the app
-3. Verifying the file in Directus is a JPEG (not HEIC)
-
-## Logs
-
-The function logs conversion details:
-```
-[uploadFile] HEIC/HEIF file detected, converting to JPEG...
-[uploadFile] Converted HEIC to JPEG. Original: 1234567 bytes, Converted: 987654 bytes
-```
-
-## Error Handling
-
-If conversion fails, the function returns a 500 error with details. The original file is not uploaded in this case.
-
+Older notes that describe server-side HEIC→JPEG via `sharp` into Directus are obsolete. Those docs belong under `docs/archive/` if retained for history.
