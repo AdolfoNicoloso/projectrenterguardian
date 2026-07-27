@@ -128,7 +128,10 @@ export const getInspectionSteps = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing inspectionId"});
       return;
     }
-    const data = await domain.listInspectionSteps(ctx.appProfileId, inspectionId);
+    const data = await domain.listInspectionSteps(
+      ctx.appProfileId,
+      inspectionId
+    );
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);
@@ -261,7 +264,10 @@ export const deleteInspection = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing id"});
       return;
     }
-    const ok = await domain.deleteInspectionForProfile(ctx.appProfileId, input.id);
+    const ok = await domain.deleteInspectionForProfile(
+      ctx.appProfileId,
+      input.id
+    );
     if (!ok) {
       s.status(404).json({error: "Inspection not found"});
       return;

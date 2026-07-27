@@ -65,6 +65,9 @@ async function dataUriForBase64Upload(
       ? file.base64
       : `data:${file.type};base64,${file.base64}`;
   }
+  if (file.uri?.startsWith('data:')) {
+    return file.uri;
+  }
   if (!file.uri || typeof FileReader === 'undefined') {
     return null;
   }
@@ -174,6 +177,28 @@ class PhotosService {
   }
 
   /**
+   * Persist left→right order for photos in a space (or unassigned tray).
+   */
+  async reorderPhotos(
+    propertyId: string,
+    orderedPhotoIds: string[],
+    spaceId?: string | null
+  ): Promise<Photo[]> {
+    const response = await backendClient.call<{ data: Photo[] }>(
+      'reorderPhotos',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          propertyId,
+          spaceId: spaceId || '',
+          orderedPhotoIds,
+        }),
+      }
+    );
+    return response.data || [];
+  }
+
+  /**
    * Upload via Cloud Function base64 body (images / small files only).
    */
   async uploadFileBase64(file: {
@@ -279,9 +304,9 @@ class PhotosService {
 
   /**
    * Upload a file; prefer direct Storage for images (and videos when enabled).
-   * On web, images within the CF size limit skip direct GCS PUT: browser PUT to
-   * the media bucket currently fails with CORS ("Failed to fetch") and wastes
-   * ~10s before the base64 fallback. Larger files still use direct upload.
+   * On web, images within the CF size limit always use the base64 CF path —
+   * browser PUT to the media bucket fails CORS and can stall ~10s before any
+   * fallback. Larger-than-limit web files still attempt direct upload.
    */
   async uploadFile(file: UploadableFile): Promise<string> {
     const isVideo = isVideoMimeType(file.type);
@@ -292,24 +317,33 @@ class PhotosService {
       return this.uploadFileDirect(file);
     }
 
-    const size =
+    let size =
       file.byteSize ??
       (file.base64 ? estimateBytesFromBase64(file.base64) : undefined);
 
-    // Web + within CF limit: use base64 path directly (avoids doomed CORS PUT).
-    if (
-      Platform.OS === 'web' &&
-      (file.uri || file.base64) &&
-      (size == null || size <= MAX_BASE64_UPLOAD_BYTES)
-    ) {
-      const dataUri = await dataUriForBase64Upload(file);
-      if (dataUri) {
-        return this.uploadFileBase64({
-          base64: dataUri,
-          type: file.type,
-          name: file.name,
-          propertyId: file.propertyId,
-        });
+    // Web: never attempt the doomed GCS CORS PUT for CF-sized images.
+    if (Platform.OS === 'web' && (file.uri || file.base64)) {
+      // Resolve size from the blob when missing so we don't mis-route.
+      if (size == null && file.uri && !file.uri.startsWith('data:')) {
+        try {
+          const blob = await blobFromUploadable(file);
+          size = blob.size;
+        } catch {
+          // keep size unknown
+        }
+      }
+
+      if (size == null || size <= MAX_BASE64_UPLOAD_BYTES) {
+        const dataUri = await dataUriForBase64Upload(file);
+        if (dataUri) {
+          return this.uploadFileBase64({
+            base64: dataUri,
+            type: file.type,
+            name: file.name,
+            propertyId: file.propertyId,
+          });
+        }
+        throw new Error('Failed to prepare image for upload');
       }
     }
 

@@ -33,18 +33,30 @@ import {
   propertyDisplayName,
 } from '../constants/propertyStatuses';
 import {
+  hasTourCompleted,
   hasTourScheduledAt,
   sortTouringProperties,
 } from '../utils/tourSchedule';
+import {
+  getTourDocumentationSignals,
+  shouldPromptTourDocumented,
+} from '../utils/tourDocumentation';
+import {
+  pickApplicationPdf,
+  promptAttachApplicationPdf,
+  uploadApplicationPdf,
+} from '../services/applicationDocumentService';
 import { HubPromptModal } from './propertyHub/HubPromptModal';
 import { ToursFilterChips } from './propertyHub/ToursFilterChips';
 import { ToursPropertyList } from './propertyHub/ToursPropertyList';
 import { RentsPropertyList } from './propertyHub/RentsPropertyList';
 import { propertyHubStyles as styles } from './propertyHub/propertyHubStyles';
 import {
+  markTourDocumentedPromptShown,
   markTourSchedulePromptShown,
   propertyMatchesSearch,
   propertyMatchesToursFilter,
+  shouldShowTourDocumentedPrompt,
   shouldShowTourSchedulePrompt,
 } from './propertyHub/propertyHubSearch';
 import {
@@ -78,6 +90,8 @@ export function PropertyHubHome({ mode }: PropertyHubHomeProps) {
   const [firstPropertyId, setFirstPropertyId] = useState<string | null>(null);
   const [finishDraft, setFinishDraft] = useState<Inspection | null>(null);
   const [tourPromptProperty, setTourPromptProperty] = useState<Property | null>(null);
+  const [documentPromptProperty, setDocumentPromptProperty] =
+    useState<Property | null>(null);
   const [showOtherProperties, setShowOtherProperties] = useState(false);
   /** propertyId → incomplete tour inspection id */
   const [incompleteTourByPropertyId, setIncompleteTourByPropertyId] = useState<
@@ -93,6 +107,7 @@ export function PropertyHubHome({ mode }: PropertyHubHomeProps) {
   const { showToast } = useToast();
   const updateProperty = usePropertiesStore((s) => s.updateProperty);
   const [markingAppliedId, setMarkingAppliedId] = useState<string | null>(null);
+  const [markingTouredId, setMarkingTouredId] = useState<string | null>(null);
   const { active, touring, other } = useMemo(() => {
     const nextActive: Property[] = [];
     const nextTouring: Property[] = [];
@@ -285,6 +300,25 @@ export function PropertyHubHome({ mode }: PropertyHubHomeProps) {
             await markTourSchedulePromptShown();
             if (cancelled) return;
             setTourPromptProperty(needsSchedule[0]);
+            return;
+          }
+
+          // Prefer “done documenting?” when the user already captured rooms/photos.
+          const candidates = props
+            .filter((p) => shouldPromptTourDocumented(p))
+            .sort((a, b) => {
+              const aTime = Date.parse(a.date_updated || a.date_created || '') || 0;
+              const bTime = Date.parse(b.date_updated || b.date_created || '') || 0;
+              return bTime - aTime;
+            });
+          for (const candidate of candidates.slice(0, 5)) {
+            if (!(await shouldShowTourDocumentedPrompt(candidate.id))) continue;
+            const signals = await getTourDocumentationSignals(candidate.id);
+            if (!signals.looksDocumented) continue;
+            await markTourDocumentedPromptShown(candidate.id);
+            if (cancelled) return;
+            setDocumentPromptProperty(candidate);
+            break;
           }
           return;
         }
@@ -329,10 +363,58 @@ export function PropertyHubHome({ mode }: PropertyHubHomeProps) {
 
   const markAsApplied = async (property: Property) => {
     if (markingAppliedId) return;
+    const choice = await promptAttachApplicationPdf();
+    if (choice === 'cancel') return;
+
+    // Pick PDF before showing "Updating…" so the button isn't stuck during the picker.
+    let uploaded: { fileId: string; fileName: string } | null = null;
+    if (choice === 'attach') {
+      try {
+        const picked = await pickApplicationPdf();
+        if (picked) {
+          setMarkingAppliedId(property.id);
+          try {
+            uploaded = await uploadApplicationPdf(property.id, picked);
+          } catch (uploadErr) {
+            console.error('Error uploading application PDF:', uploadErr);
+            showToast(
+              uploadErr instanceof Error
+                ? uploadErr.message
+                : 'Could not upload PDF — you can add it from Overview',
+              'error'
+            );
+            setMarkingAppliedId(null);
+            return;
+          }
+        }
+      } catch (pickErr) {
+        console.error('Error picking application PDF:', pickErr);
+        showToast(
+          pickErr instanceof Error ? pickErr.message : 'Could not open PDF picker',
+          'error'
+        );
+      }
+    }
+
     setMarkingAppliedId(property.id);
     try {
-      await updateProperty(property.id, { status: 'applied' });
-      showToast('Marked as Applied', 'success');
+      const updates: {
+        status: 'applied';
+        application_file?: string;
+        application_file_name?: string;
+      } = { status: 'applied' };
+      if (uploaded) {
+        updates.application_file = uploaded.fileId;
+        updates.application_file_name = uploaded.fileName;
+      }
+
+      await updateProperty(property.id, updates);
+      showToast(
+        updates.application_file
+          ? 'Marked as Applied with application PDF'
+          : 'Marked as Applied',
+        'success'
+      );
     } catch (err) {
       console.error('Error marking property as applied:', err);
       showToast('Failed to update status', 'error');
@@ -341,9 +423,36 @@ export function PropertyHubHome({ mode }: PropertyHubHomeProps) {
     }
   };
 
+  const markAsToured = async (property: Property) => {
+    if (markingTouredId || hasTourCompleted(property)) return;
+    setMarkingTouredId(property.id);
+    try {
+      await updateProperty(property.id, {
+        tour_completed_at: new Date().toISOString(),
+        tour_completed_source: 'confirmed',
+      });
+      showToast('Marked as toured', 'success');
+    } catch (err) {
+      console.error('Error marking property as toured:', err);
+      showToast('Failed to update tour status', 'error');
+    } finally {
+      setMarkingTouredId(null);
+    }
+  };
+
+  const confirmDocumentedTour = async () => {
+    if (!documentPromptProperty) return;
+    const property = documentPromptProperty;
+    setDocumentPromptProperty(null);
+    await markAsToured(property);
+  };
+
   const tourPromptLabel = tourPromptProperty
     ? propertyDisplayName(tourPromptProperty)
     : 'this property';
+  const documentPromptLabel = documentPromptProperty
+    ? propertyDisplayName(documentPromptProperty)
+    : 'this place';
 
   const screenTitle = isTours ? 'Tours' : 'Rents';
 
@@ -446,9 +555,13 @@ export function PropertyHubHome({ mode }: PropertyHubHomeProps) {
               properties={visibleTouring}
               incompleteTourByPropertyId={incompleteTourByPropertyId}
               markingAppliedId={markingAppliedId}
+              markingTouredId={markingTouredId}
               hasSearchQuery={hasSearchQuery}
               onMarkApplied={(property) => {
                 void markAsApplied(property);
+              }}
+              onMarkToured={(property) => {
+                void markAsToured(property);
               }}
             />
           ) : (
@@ -491,6 +604,20 @@ export function PropertyHubHome({ mode }: PropertyHubHomeProps) {
         secondaryAccessibilityLabel="Skip scheduling for now"
         onPrimary={openTourSchedule}
         onDismiss={() => setTourPromptProperty(null)}
+      />
+
+      <HubPromptModal
+        visible={!!documentPromptProperty}
+        title="Done documenting this tour?"
+        body={`You already added photos and rooms for ${documentPromptLabel}. Mark this place as toured so it’s easy to find later.`}
+        primaryLabel="Yes, mark as toured"
+        primaryAccessibilityLabel="Mark tour as done"
+        secondaryLabel="Still working on it"
+        secondaryAccessibilityLabel="Keep documenting this tour"
+        onPrimary={() => {
+          void confirmDocumentedTour();
+        }}
+        onDismiss={() => setDocumentPromptProperty(null)}
       />
     </ScreenContainer>
   );

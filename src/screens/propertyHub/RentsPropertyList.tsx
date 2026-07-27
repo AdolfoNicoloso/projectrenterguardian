@@ -6,6 +6,7 @@ import { useDesktopLayout } from '../../hooks/useDesktopLayout';
 import { useTheme } from '../../theme/useTheme';
 import { Routes } from '../../navigation/routes';
 import { propertyDisplayName } from '../../constants/propertyStatuses';
+import { isCheckInDue } from '../../utils/propertyJourney';
 import type { Property } from '../../types';
 import { AddPropertyCard } from './AddPropertyCard';
 import { PropertyHubCard } from './PropertyHubCard';
@@ -76,7 +77,15 @@ export function RentsPropertyList({
                                     property.id
                                 ),
                             }
-                          : {
+                          : isCheckInDue(property)
+                            ? {
+                                label: 'Start check-in',
+                                onPress: () =>
+                                  router.push(
+                                    `/(tabs)/inspections/new?propertyId=${encodeURIComponent(property.id)}&inspectionType=periodic`
+                                  ),
+                              }
+                            : {
                               label: 'Start inspection',
                               onPress: () =>
                                 router.push(

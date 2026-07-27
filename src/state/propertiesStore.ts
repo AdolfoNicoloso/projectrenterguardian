@@ -189,7 +189,15 @@ export const usePropertiesStore = create<PropertiesState>((set, get) => ({
 
   updateProperty: async (id, updates) => {
     const data = await propertiesService.updateProperty(id, updates);
-    get().upsert(data);
+    const prev = get().byId[id];
+    // Prefer server fields, but keep client-sent values the response omits
+    // (e.g. briefly after a backend allowlist deploy lag).
+    get().upsert({
+      ...(prev || { id }),
+      ...updates,
+      ...data,
+      id,
+    } as Property);
     return data;
   },
 

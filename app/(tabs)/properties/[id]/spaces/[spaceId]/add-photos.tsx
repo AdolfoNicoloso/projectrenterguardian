@@ -439,6 +439,9 @@ export default function AddPhotosScreen() {
             showSelection={false}
             enablePreviewOnLongPress={true}
             enablePreviewOnTap={false}
+            spaceLabelForPhoto={(photo) =>
+              photo.space ? 'Assigned' : 'Unassigned'
+            }
           />
         )}
       </ScrollView>

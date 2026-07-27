@@ -77,11 +77,20 @@ export default function AcceptInviteScreen() {
     setAccepting(true);
     setError('');
     try {
-      await propertyMembersService.acceptInvite(inviteToken);
+      const result = await propertyMembersService.acceptInvite(inviteToken);
       showToast('Invitation accepted', 'success');
       await usePropertiesStore.getState().fetchList({ force: true });
       void useNotificationsStore.getState().fetch({ force: true });
-      // Stay in hub — invitations are tracked in the notifications inbox.
+      const propertyId = result?.property_id;
+      if (propertyId) {
+        try {
+          await usePropertiesStore.getState().fetchOne(propertyId, { force: true });
+        } catch {
+          // Detail screen can still load; list already refreshed.
+        }
+        router.replace(Routes.PROPERTIES.DETAIL(propertyId) as never);
+        return;
+      }
       router.replace(Routes.RENTS.LIST);
     } catch (err: any) {
       setError(err?.message || 'Could not accept invite');

@@ -6,7 +6,7 @@
 import * as crypto from "crypto";
 import {db, nowIso, snapToDoc, type FsDoc} from "./db";
 import {requirePropertyAccess} from "./access";
-import {createSignedReadUrl, downloadByFileId} from "./storage";
+import {downloadByFileId} from "./storage";
 
 const PUBLIC_SHARE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const MAX_PUBLIC_PHOTOS = 60;
@@ -278,36 +278,30 @@ export async function getPublicPropertyPreviewByToken(
   const photoDocs = photosSnap.docs
     .map((d) => snapToDoc(d))
     .filter((d): d is NonNullable<typeof d> => d != null)
-    .filter((d) => typeof d.file === "string" && d.file);
+    .filter((d) => typeof d.file === "string" && d.file)
+    .sort((a, b) => {
+      const oa = Number.isFinite(Number(a.ordinal)) ? Number(a.ordinal) : 1e9;
+      const ob = Number.isFinite(Number(b.ordinal)) ? Number(b.ordinal) : 1e9;
+      if (oa !== ob) return oa - ob;
+      const ca = String(a.captured_at || "");
+      const cb = String(b.captured_at || "");
+      return ca.localeCompare(cb);
+    });
 
-  const photos = await Promise.all(
-    photoDocs.map(async (d) => {
-      const fileId = String(d.file);
-      try {
-        const [thumbUrl, displayUrl] = await Promise.all([
-          createSignedReadUrl(fileId, "thumb"),
-          createSignedReadUrl(fileId, "display"),
-        ]);
-        return {
-          id: d.id,
-          file: fileId,
-          space: d.space_id || null,
-          captured_at: d.captured_at ?? null,
-          thumb_url: thumbUrl,
-          display_url: displayUrl,
-        };
-      } catch {
-        return {
-          id: d.id,
-          file: fileId,
-          space: d.space_id || null,
-          captured_at: d.captured_at ?? null,
-          thumb_url: null,
-          display_url: null,
-        };
-      }
-    })
-  );
+  const photos = photoDocs.map((d) => {
+    const fileId = String(d.file);
+    return {
+      id: d.id,
+      file: fileId,
+      space: d.space_id || null,
+      captured_at: d.captured_at ?? null,
+      // Client loads media via getPublicFile — do not mint signed URLs here.
+      // Parallel createSignedReadUrl for every photo OOMs the 256MiB instance
+      // when signing fails and/or variants are missing.
+      thumb_url: null,
+      display_url: null,
+    };
+  });
 
   return {
     expires_at: share.expires_at ?? null,

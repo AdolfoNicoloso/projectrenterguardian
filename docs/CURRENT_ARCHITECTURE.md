@@ -59,6 +59,10 @@ Base64 `uploadFile` still exists for small/legacy uploads (~15MB cap). Prefer di
 | Property spaces tab | `src/screens/PropertySpaces.tsx` | `src/screens/propertySpaces/` (thumbs, reorder helpers, styles) |
 | Sharing backend | `functions/src/firestore/sharing.ts` (barrel) | `sharingNormalize`, `sharingInternal`, `sharingInvites`, `sharingMembers` |
 
+### Property lifecycle milestones
+
+Tour pipeline uses soft fields on `properties` (not new status values): `tour_completed_at` / `tour_completed_source`, `move_in_baseline_inspection_id`, `next_check_in_at` / `check_in_reminder_opt_in`. Hub stage badges come from `getToursHubStage`. Check-in reminders run with the tour-reminder scheduler via `processDueCheckInReminders`.
+
 ## Repo layout
 
 | Path | Role |

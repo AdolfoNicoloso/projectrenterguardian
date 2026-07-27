@@ -8,6 +8,13 @@ export function hasTourScheduledAt(property: Property): boolean {
   );
 }
 
+export function hasTourCompleted(property: Property): boolean {
+  return (
+    typeof property.tour_completed_at === 'string' &&
+    property.tour_completed_at.trim().length > 0
+  );
+}
+
 export type TourScheduleBucket = 'upcoming' | 'toured' | 'unscheduled';
 
 /** Grace period after scheduled time before treating the tour as past. */
@@ -25,10 +32,14 @@ export function getTourScheduleBucket(
 
 /**
  * Single Tours-hub stage for card badges.
- * Collapses property status (Touring/Applied) + schedule (Scheduled/Toured/…)
- * into one signal — Applied wins; otherwise the schedule stage.
+ * Applied wins; confirmed tour completion beats schedule inference.
  */
-export type ToursHubStageId = 'applied' | 'scheduled' | 'toured' | 'unscheduled';
+export type ToursHubStageId =
+  | 'applied'
+  | 'scheduled'
+  | 'toured'
+  | 'likely_toured'
+  | 'unscheduled';
 
 export type ToursHubStage = {
   id: ToursHubStageId;
@@ -51,6 +62,15 @@ export function getToursHubStage(
     };
   }
 
+  if (hasTourCompleted(property)) {
+    return {
+      id: 'toured',
+      label: 'Toured',
+      variant: 'default',
+      showTourAt: hasTourScheduledAt(property),
+    };
+  }
+
   const bucket = getTourScheduleBucket(property, nowMs);
   if (bucket === 'upcoming') {
     return {
@@ -61,16 +81,17 @@ export function getToursHubStage(
     };
   }
   if (bucket === 'toured') {
+    // Schedule time passed but user has not confirmed — soft signal only.
     return {
-      id: 'toured',
-      label: 'Toured',
-      variant: 'default',
+      id: 'likely_toured',
+      label: 'Likely toured',
+      variant: 'warning',
       showTourAt: true,
     };
   }
   return {
     id: 'unscheduled',
-    label: 'Not scheduled',
+    label: 'Ready to tour',
     variant: 'warning',
     showTourAt: false,
   };
@@ -88,6 +109,10 @@ export function sortTouringProperties(
   nowMs = Date.now()
 ): Property[] {
   return [...properties].sort((a, b) => {
+    const aCompleted = hasTourCompleted(a) ? 0 : 1;
+    const bCompleted = hasTourCompleted(b) ? 0 : 1;
+    if (aCompleted !== bCompleted) return aCompleted - bCompleted;
+
     const aBucket = getTourScheduleBucket(a, nowMs);
     const bBucket = getTourScheduleBucket(b, nowMs);
     const bucketDiff =

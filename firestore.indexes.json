@@ -4,8 +4,8 @@
       "collectionGroup": "properties",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "app_profile_id", "order": "ASCENDING" },
-        { "fieldPath": "date_created", "order": "DESCENDING" }
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "check_in_reminder_opt_in", "order": "ASCENDING" }
       ]
     },
     {

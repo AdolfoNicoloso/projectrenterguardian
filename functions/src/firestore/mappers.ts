@@ -42,6 +42,15 @@ export function mapPropertyToClient(
     lease_term: doc.lease_term ?? undefined,
     /** Personal tour tracker (ISO); not a landlord booking. */
     tour_scheduled_at: toIso(doc.tour_scheduled_at) ?? null,
+    tour_completed_at: toIso(doc.tour_completed_at) ?? null,
+    tour_completed_source: doc.tour_completed_source ?? null,
+    move_in_baseline_inspection_id:
+      doc.move_in_baseline_inspection_id ?? null,
+    next_check_in_at: toIso(doc.next_check_in_at) ?? null,
+    check_in_reminder_opt_in:
+      typeof doc.check_in_reminder_opt_in === "boolean" ?
+        doc.check_in_reminder_opt_in :
+        null,
     nickname: doc.nickname ?? undefined,
     state_code: doc.state_code ?? undefined,
     status: doc.status ?? "active",
@@ -50,6 +59,9 @@ export function mapPropertyToClient(
     city: doc.city ?? undefined,
     zip: doc.zip ?? undefined,
     listing_url: doc.listing_url ?? undefined,
+    application_file: doc.application_file ?? null,
+    application_file_name: doc.application_file_name ?? null,
+    applied_at: toIso(doc.applied_at) ?? null,
     date_created: toIso(doc.date_created),
     date_updated: toIso(doc.date_updated),
   };
@@ -94,6 +106,7 @@ export function mapPhotoToClient(doc: FsDoc): Record<string, unknown> {
     notes_entries: notesEntries,
     /** @deprecated Prefer notes_entries; kept for older clients. */
     notes: notesEntriesToLegacyText(notesEntries) ?? undefined,
+    ordinal: typeof doc.ordinal === "number" ? doc.ordinal : undefined,
     date_created: toIso(doc.date_created),
     date_updated: toIso(doc.date_updated),
   };
@@ -112,6 +125,7 @@ export function mapPhotoToGalleryClient(doc: FsDoc): Record<string, unknown> {
     file: doc.file ?? "",
     captured_at: toIso(doc.captured_at) ?? "",
     assignment_status: doc.assignment_status ?? "unassigned",
+    ordinal: typeof doc.ordinal === "number" ? doc.ordinal : undefined,
     date_created: toIso(doc.date_created),
     date_updated: toIso(doc.date_updated),
   };

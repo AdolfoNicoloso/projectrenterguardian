@@ -89,7 +89,15 @@ class PropertiesService {
       lease_end_date?: string | null;
       state_code?: string | null;
       listing_url?: string | null;
+      application_file?: string | null;
+      application_file_name?: string | null;
+      applied_at?: string | null;
       tour_scheduled_at?: string | null;
+      tour_completed_at?: string | null;
+      tour_completed_source?: Property['tour_completed_source'];
+      move_in_baseline_inspection_id?: string | null;
+      next_check_in_at?: string | null;
+      check_in_reminder_opt_in?: boolean | null;
     }
   ): Promise<Property> {
     const response = await backendClient.call<{ data: Property }>(

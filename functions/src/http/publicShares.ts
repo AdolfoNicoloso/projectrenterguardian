@@ -6,6 +6,7 @@ import {onRequest} from "firebase-functions/v2/https";
 import * as domain from "../firestore";
 import {
   FN_OPTS,
+  MEDIA_READ_FN_OPTS,
   Req,
   Res,
   authed,
@@ -93,7 +94,7 @@ export const revokePropertyPublicShare = onRequest(
 
 /** Public: property preview for a share token (no login). */
 export const getPublicPropertyPreview = onRequest(
-  FN_OPTS,
+  MEDIA_READ_FN_OPTS,
   async (req, res) => {
     const r = req as unknown as Req;
     const s = res as unknown as Res;
@@ -125,7 +126,7 @@ export const getPublicPropertyPreview = onRequest(
 );
 
 /** Public: media bytes for a share token (no login). */
-export const getPublicFile = onRequest(FN_OPTS, async (req, res) => {
+export const getPublicFile = onRequest(MEDIA_READ_FN_OPTS, async (req, res) => {
   const r = req as unknown as Req;
   const s = res as unknown as Res;
   if (handleCorsPreflight(r, s)) {

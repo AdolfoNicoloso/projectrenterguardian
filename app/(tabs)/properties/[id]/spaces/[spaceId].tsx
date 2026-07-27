@@ -1,9 +1,14 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { PRGCard, PRGEditableTextRow, PRGHeader, PRGPhotoGrid, PRGButton, PRGInput, NotesListEditor, useToast } from '../../../../../src/components';
+import { PRGCard, PRGEditableTextRow, PRGHeader, PRGPhotoGrid, PRGButton, PRGInput, NotesListEditor, PRGLoadingOverlay, useToast } from '../../../../../src/components';
 import { spacesService } from '../../../../../src/services/spacesService';
 import { photosService } from '../../../../../src/services/photosService';
+import {
+  formatBatchUploadToast,
+  pickMediaFromLibraryAsync,
+  uploadImagePickerAssetsBatch,
+} from '../../../../../src/services/mediaBatchUpload';
 import { useAuthStore } from '../../../../../src/state/authStore';
 import { usePropertiesStore } from '../../../../../src/state/propertiesStore';
 import { SPACE_TYPES, getSpaceTypeLabel } from '../../../../../src/constants/spaceTypes';
@@ -12,6 +17,7 @@ import { useTheme } from '../../../../../src/theme/useTheme';
 import type { NoteEntry, Space } from '../../../../../src/types';
 import { coerceNotesEntries } from '../../../../../src/utils/notes';
 import { canEditProperty } from '../../../../../src/utils/propertyAccess';
+import { capturedAtFromExif } from '../../../../../src/utils/dateTime';
 import { goBackOr } from '../../../../../src/navigation/goBackOr';
 import { Routes } from '../../../../../src/navigation/routes';
 
@@ -30,6 +36,11 @@ export default function SpaceDetailScreen() {
   const [selectedSpaceType, setSelectedSpaceType] = useState<Space['space_type'] | null>(null);
   const [otherTypeValue, setOtherTypeValue] = useState('');
   const [notesEntries, setNotesEntries] = useState<NoteEntry[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
 
   const currentUserName =
     authUser?.displayName?.trim() ||
@@ -243,6 +254,51 @@ export default function SpaceDetailScreen() {
     }
   };
 
+  const handleAddPhotos = async () => {
+    if (!canEditProperty(property) || !id || !spaceId || uploading) return;
+    try {
+      const assets = await pickMediaFromLibraryAsync();
+      if (!assets?.length) return;
+
+      setUploading(true);
+      setUploadProgress({ completed: 0, total: assets.length });
+      try {
+        const { successCount, failCount, firstErrorMessage } =
+          await uploadImagePickerAssetsBatch(
+            assets,
+            (asset) => ({
+              property: id,
+              space: spaceId,
+              assignment_status: 'confirmed' as const,
+              captured_at: capturedAtFromExif(asset.exif?.DateTimeOriginal),
+            }),
+            {
+              onProgress: ({ completed, total }) =>
+                setUploadProgress({ completed, total }),
+            }
+          );
+
+        const toast = formatBatchUploadToast(
+          successCount,
+          failCount,
+          'photo(s)',
+          firstErrorMessage
+        );
+        if (toast) showToast(toast.message, toast.type);
+      } finally {
+        setUploading(false);
+        setUploadProgress(null);
+      }
+      await loadPhotos();
+    } catch (error) {
+      console.error('Error picking media:', error);
+      showToast(
+        error instanceof Error ? error.message : 'Failed to open photo library',
+        'error'
+      );
+    }
+  };
+
   const handleBack = () => {
     goBackOr(
       router,
@@ -398,8 +454,11 @@ export default function SpaceDetailScreen() {
             {canEdit ? (
               <PRGButton
                 title="Add Photos"
-                onPress={() => router.push(`/(tabs)/properties/${id}/spaces/${spaceId}/add-photos`)}
+                onPress={() => {
+                  void handleAddPhotos();
+                }}
                 variant="secondary"
+                disabled={uploading}
               />
             ) : null}
           </View>
@@ -411,9 +470,14 @@ export default function SpaceDetailScreen() {
             <PRGPhotoGrid
               photos={photos}
               selectedIds={[]}
-              onPhotoPress={(photo) => router.push(`/(tabs)/properties/${id}/photos/${photo.id}`)}
+              onPhotoPress={() => {}}
               onPhotoSelect={() => {}}
               showSelection={false}
+              enablePreviewOnTap
+              spaceLabelForPhoto={() => space?.display_name || 'Unassigned'}
+              onEditPhoto={(photoId) =>
+                router.push(`/(tabs)/properties/${id}/photos/${photoId}`)
+              }
             />
           )}
         </View>
@@ -470,6 +534,20 @@ export default function SpaceDetailScreen() {
         </View>
         ) : null}
       </ScrollView>
+
+      <PRGLoadingOverlay
+        visible={uploading}
+        message={
+          uploadProgress && uploadProgress.total > 0
+            ? `Uploading ${uploadProgress.completed}/${uploadProgress.total}...`
+            : 'Uploading photos...'
+        }
+        progress={
+          uploadProgress && uploadProgress.total > 0
+            ? Math.round((uploadProgress.completed / uploadProgress.total) * 100)
+            : undefined
+        }
+      />
     </View>
   );
 }

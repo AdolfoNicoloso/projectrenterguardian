@@ -27,6 +27,7 @@ export const Routes = {
     CREATE: '/(tabs)/properties/status-intent',
     TOURS_CALENDAR: '/(tabs)/properties/tours-calendar',
     DETAIL: (id: string) => `/(tabs)/properties/${id}`,
+    CONVERT: (id: string) => `/(tabs)/properties/${id}/convert`,
     /** Post-create invite step (property already exists). */
     INVITE_COLLABORATORS: '/(tabs)/properties/invite-collaborators',
     PHOTOS: {

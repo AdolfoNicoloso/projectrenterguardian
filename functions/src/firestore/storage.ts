@@ -4,7 +4,6 @@
 
 import {randomUUID} from "node:crypto";
 import * as admin from "firebase-admin";
-import sharp from "sharp";
 import {db, nowIso, snapToDoc} from "./db";
 
 export interface DownloadedFile {
@@ -28,8 +27,6 @@ export const MAX_BASE64_UPLOAD_BYTES = 15 * 1024 * 1024;
 export const MAX_DIRECT_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 const MEDIA_BUCKET = "project-renter-guardian-media";
-const THUMB_MAX_EDGE = 400;
-const DISPLAY_MAX_EDGE = 1600;
 const SIGNED_URL_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 /** @return {admin.storage.Bucket} Media uploads bucket. */
@@ -83,73 +80,9 @@ function safeFilename(filename: string): string {
 }
 
 /**
- * @param {string} mimeType MIME type.
- * @return {boolean} Whether image variants should be generated.
- */
-function isImageMime(mimeType: string): boolean {
-  return mimeType.toLowerCase().startsWith("image/");
-}
-
-/**
- * Generates thumb + display JPEG variants and returns their storage paths.
- * @param {string} appProfileId Owner profile id.
- * @param {string} fileId Media file id.
- * @param {Buffer} sourceBuffer Original bytes.
- * @return {Promise<{thumbPath?: string, displayPath?: string}>} Variant paths.
- */
-async function generateImageVariants(
-  appProfileId: string,
-  fileId: string,
-  sourceBuffer: Buffer
-): Promise<{thumbPath?: string; displayPath?: string}> {
-  try {
-    const base = `uploads/${appProfileId}/${fileId}`;
-    const thumbPath = `${base}_thumb.jpg`;
-    const displayPath = `${base}_display.jpg`;
-
-    const thumbBuf = await sharp(sourceBuffer)
-      .rotate()
-      .resize({
-        width: THUMB_MAX_EDGE,
-        height: THUMB_MAX_EDGE,
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .jpeg({quality: 72, mozjpeg: true})
-      .toBuffer();
-
-    const displayBuf = await sharp(sourceBuffer)
-      .rotate()
-      .resize({
-        width: DISPLAY_MAX_EDGE,
-        height: DISPLAY_MAX_EDGE,
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .jpeg({quality: 82, mozjpeg: true})
-      .toBuffer();
-
-    await Promise.all([
-      mediaBucket().file(thumbPath).save(thumbBuf, {
-        metadata: {contentType: "image/jpeg"},
-        resumable: false,
-      }),
-      mediaBucket().file(displayPath).save(displayBuf, {
-        metadata: {contentType: "image/jpeg"},
-        resumable: false,
-      }),
-    ]);
-
-    return {thumbPath, displayPath};
-  } catch (err) {
-    console.warn("[generateImageVariants]", err);
-    return {};
-  }
-}
-
-/**
  * Uploads bytes to Storage and registers a media_files document.
  * Bucket: project-renter-guardian-media
+ * Thumb/display paths are optional; getFile falls back to the original.
  * @param {string} appProfileId Owner profile id.
  * @param {Buffer} fileBuffer Raw bytes.
  * @param {string} filename Original filename.
@@ -177,18 +110,6 @@ export async function uploadBinary(
     resumable: false,
   });
 
-  let thumbPath: string | undefined;
-  let displayPath: string | undefined;
-  if (isImageMime(mimeType)) {
-    const variants = await generateImageVariants(
-      appProfileId,
-      fileId,
-      fileBuffer
-    );
-    thumbPath = variants.thumbPath;
-    displayPath = variants.displayPath;
-  }
-
   const ts = nowIso();
   await db().collection("media_files").doc(fileId).set({
     storage_path: storagePath,
@@ -197,8 +118,6 @@ export async function uploadBinary(
     app_profile_id: appProfileId,
     size: fileBuffer.length,
     upload_status: "ready",
-    ...(thumbPath ? {thumb_path: thumbPath} : {}),
-    ...(displayPath ? {display_path: displayPath} : {}),
     date_created: ts,
     date_updated: ts,
   });
@@ -254,7 +173,6 @@ export async function createSignedUploadSession(
 
 /**
  * Confirms a signed upload landed in Storage and marks the media file ready.
- * Generates image variants when the upload is an image.
  * @param {string} appProfileId Caller profile id.
  * @param {string} fileId Media file id.
  * @return {Promise<boolean>} True when ready; false when missing / not owned.
@@ -290,29 +208,11 @@ export async function finalizeSignedUploadForProfile(
     console.warn("[finalizeSignedUpload] metadata:", err);
   }
 
-  const updates: Record<string, unknown> = {
+  await ref.update({
     upload_status: "ready",
     size,
     date_updated: nowIso(),
-  };
-
-  const contentType = String(doc.content_type || "application/octet-stream");
-  if (isImageMime(contentType) && !doc.thumb_path) {
-    try {
-      const [buffer] = await file.download();
-      const variants = await generateImageVariants(
-        appProfileId,
-        fileId,
-        buffer
-      );
-      if (variants.thumbPath) updates.thumb_path = variants.thumbPath;
-      if (variants.displayPath) updates.display_path = variants.displayPath;
-    } catch (err) {
-      console.warn("[finalizeSignedUpload] variants:", err);
-    }
-  }
-
-  await ref.update(updates);
+  });
   return true;
 }
 
@@ -353,7 +253,8 @@ function resolveVariantPath(
 /**
  * Creates a short-lived V4 signed GET URL for a media file variant.
  * Falls back to null when signing is unavailable (caller may proxy bytes).
- * Lazily generates missing image variants on first thumb/display request.
+ * Missing thumb/display paths fall back to the original — do not generate
+ * variants on the read path (download+sharp OOMs 256MiB under grid load).
  * @param {string} fileId Media file id.
  * @param {MediaVariant} variant thumb | display | original.
  * @return {Promise<string|null>} Signed URL or null.
@@ -366,40 +267,6 @@ export async function createSignedReadUrl(
   const doc = snapToDoc(snap);
   if (!doc) {
     return null;
-  }
-
-  // Lazily backfill variants for older uploads.
-  if (
-    variant !== "original" &&
-    isImageMime(String(doc.content_type || "")) &&
-    !doc.thumb_path &&
-    typeof doc.storage_path === "string" &&
-    typeof doc.app_profile_id === "string"
-  ) {
-    try {
-      const [buffer] = await mediaBucket().file(doc.storage_path).download();
-      const variants = await generateImageVariants(
-        String(doc.app_profile_id),
-        fileId,
-        buffer
-      );
-      if (variants.thumbPath || variants.displayPath) {
-        await db()
-          .collection("media_files")
-          .doc(fileId)
-          .update({
-            ...(variants.thumbPath ? {thumb_path: variants.thumbPath} : {}),
-            ...(variants.displayPath ?
-              {display_path: variants.displayPath} :
-              {}),
-            date_updated: nowIso(),
-          });
-        if (variants.thumbPath) doc.thumb_path = variants.thumbPath;
-        if (variants.displayPath) doc.display_path = variants.displayPath;
-      }
-    } catch (err) {
-      console.warn("[createSignedReadUrl] lazy variants:", err);
-    }
   }
 
   const resolved = resolveVariantPath(doc, variant);
@@ -434,6 +301,7 @@ export async function createSignedReadUrl(
 
 /**
  * Downloads a registered media file (or variant) from Storage.
+ * Missing thumb/display paths fall back to the original file.
  * @param {string} fileId Media file id.
  * @param {MediaVariant} variant thumb | display | original.
  * @return {Promise<DownloadedFile|null>} Bytes + metadata or null.
@@ -455,7 +323,11 @@ export async function downloadByFileId(
   let [exists] = await file.exists();
   let contentType = resolved.contentType;
   let filename = resolved.filename;
-  if (!exists && variant !== "original" && typeof doc.storage_path === "string") {
+  if (
+    !exists &&
+    variant !== "original" &&
+    typeof doc.storage_path === "string"
+  ) {
     file = mediaBucket().file(doc.storage_path);
     [exists] = await file.exists();
     contentType = String(doc.content_type || "application/octet-stream");

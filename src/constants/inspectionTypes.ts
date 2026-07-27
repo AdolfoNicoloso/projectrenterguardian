@@ -16,7 +16,7 @@ export const INSPECTION_TYPES = [
   },
   {
     value: 'periodic',
-    label: 'Periodic check',
+    label: 'Check-in',
     shortDescription: 'Capture condition during your tenancy.',
   },
   {
@@ -131,10 +131,10 @@ const TYPE_COPY: Partial<Record<InspectionTypeValue, InspectionTypeCopy>> = {
   },
   periodic: {
     ...DEFAULT_COPY,
-    introTitle: 'Periodic check',
+    introTitle: 'Check-in',
     introBody:
-      'Walk your unit space by space. Revisit existing rooms or add new ones as needed.',
-    reportNoun: 'periodic check',
+      'Walk your unit space by space. A quick mid-tenancy record helps protect your deposit.',
+    reportNoun: 'check-in',
   },
 };
 

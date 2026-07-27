@@ -109,21 +109,24 @@ export const createProperty = onRequest(FN_OPTS, async (req, res) => {
     }
     const status = String(input.status || "active").toLowerCase();
     // Lease / tour time optional at create; set later on overview.
-    const data = await domain.createPropertyWithDefaultSpaces(ctx.appProfileId, {
-      address_free_text: input.address_free_text,
-      lease_start_date: input.lease_start_date,
-      lease_end_date: input.lease_end_date,
-      lease_term: input.lease_term,
-      tour_scheduled_at: input.tour_scheduled_at,
-      nickname: input.nickname,
-      state_code: input.state_code,
-      street: input.street,
-      unit: input.unit,
-      city: input.city,
-      zip: input.zip,
-      listing_url: input.listing_url,
-      status,
-    });
+    const data = await domain.createPropertyWithDefaultSpaces(
+      ctx.appProfileId,
+      {
+        address_free_text: input.address_free_text,
+        lease_start_date: input.lease_start_date,
+        lease_end_date: input.lease_end_date,
+        lease_term: input.lease_term,
+        tour_scheduled_at: input.tour_scheduled_at,
+        nickname: input.nickname,
+        state_code: input.state_code,
+        street: input.street,
+        unit: input.unit,
+        city: input.city,
+        zip: input.zip,
+        listing_url: input.listing_url,
+        status,
+      }
+    );
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);

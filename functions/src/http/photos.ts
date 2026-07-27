@@ -8,6 +8,7 @@ import * as domain from "../firestore";
 import {
   FN_OPTS,
   UPLOAD_FN_OPTS,
+  MEDIA_READ_FN_OPTS,
   Req,
   Res,
   authed,
@@ -242,9 +243,12 @@ export const createMediaUpload = onRequest(FN_OPTS, async (req, res) => {
 
     const mimeType = String(input.type);
     const isVideo = mimeType.toLowerCase().startsWith("video/");
+    const isPdf = mimeType.toLowerCase() === "application/pdf";
     const maxBytes = isVideo ?
       domain.MAX_DIRECT_UPLOAD_BYTES :
-      domain.MAX_BASE64_UPLOAD_BYTES;
+      isPdf ?
+        25 * 1024 * 1024 :
+        domain.MAX_BASE64_UPLOAD_BYTES;
     if (
       typeof input.size === "number" &&
       Number.isFinite(input.size) &&
@@ -253,7 +257,9 @@ export const createMediaUpload = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({
         error: isVideo ?
           "Video exceeds 200 MB limit" :
-          "File exceeds size limit",
+          isPdf ?
+            "PDF exceeds 25 MB limit" :
+            "File exceeds size limit",
       });
       return;
     }
@@ -278,8 +284,8 @@ export const createMediaUpload = onRequest(FN_OPTS, async (req, res) => {
 });
 
 /**
- * Confirm a direct GCS upload finished and mark media_files ready
- * (also generates thumb/display variants for images).
+ * Confirm a direct GCS upload finished and mark media_files ready.
+ * Thumb/display variants are generated lazily on first read.
  */
 export const finalizeMediaUpload = onRequest(FN_OPTS, async (req, res) => {
   const r = req as unknown as Req;
@@ -455,7 +461,7 @@ export const deletePhoto = onRequest(FN_OPTS, async (req, res) => {
   }
 });
 
-export const getFile = onRequest(FN_OPTS, async (req, res) => {
+export const getFile = onRequest(MEDIA_READ_FN_OPTS, async (req, res) => {
   const r = req as unknown as Req;
   const s = res as unknown as Res;
   if (handleCorsPreflight(r, s)) {
@@ -563,6 +569,44 @@ export const createAssignment = onRequest(FN_OPTS, async (req, res) => {
   }
 });
 
+export const reorderPhotos = onRequest(FN_OPTS, async (req, res) => {
+  const r = req as unknown as Req;
+  const s = res as unknown as Res;
+  if (handleCorsPreflight(r, s)) {
+    return;
+  }
+  setCorsHeaders(s, r);
+  try {
+    if (r.method !== "POST" && r.method !== "PATCH") {
+      s.status(405).json({error: "Method not allowed. Use POST."});
+      return;
+    }
+    const ctx = await authed(r, s);
+    if (!ctx) {
+      return;
+    }
+    const input = parseBody<{
+      propertyId?: string;
+      /** Space id, or omit/empty for unassigned tray. */
+      spaceId?: string | null;
+      orderedPhotoIds?: string[];
+    }>(r.body);
+    if (!input.propertyId || !Array.isArray(input.orderedPhotoIds)) {
+      s.status(400).json({error: "Missing propertyId or orderedPhotoIds"});
+      return;
+    }
+    const data = await domain.reorderPhotosForProperty(
+      ctx.appProfileId,
+      input.propertyId,
+      input.spaceId || "",
+      input.orderedPhotoIds
+    );
+    s.status(200).json({data});
+  } catch (err: unknown) {
+    sendErr(s, r, err);
+  }
+});
+
 export const getAssignments = onRequest(FN_OPTS, async (req, res) => {
   const r = req as unknown as Req;
   const s = res as unknown as Res;
@@ -584,7 +628,10 @@ export const getAssignments = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing photoId"});
       return;
     }
-    const data = await domain.listAssignmentsForPhoto(ctx.appProfileId, photoId);
+    const data = await domain.listAssignmentsForPhoto(
+      ctx.appProfileId,
+      photoId
+    );
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);

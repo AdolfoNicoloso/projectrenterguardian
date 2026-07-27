@@ -4,6 +4,7 @@
 
 import {db, nowIso, snapToDoc} from "./db";
 import {getPropertyAccess, requirePropertyAccess} from "./access";
+import {siblingAppProfileIds} from "./profiles";
 import {isValidPropertyStatus} from "./propertyStatuses";
 import {deleteMediaFile} from "./storage";
 import {
@@ -31,27 +32,30 @@ const DEFAULT_PROPERTY_SPACES: ReadonlyArray<{
 export async function listPropertiesForAppProfile(
   appProfileId: string
 ): Promise<Record<string, unknown>[]> {
-  const ownedSnap = await db()
-    .collection("properties")
-    .where("app_profile_id", "==", appProfileId)
-    .limit(100)
-    .get();
+  const profileIds = await siblingAppProfileIds(appProfileId);
   const byId = new Map<string, Record<string, unknown>>();
 
-  for (const d of ownedSnap.docs) {
-    const doc = snapToDoc(d);
-    if (!doc) continue;
-    byId.set(doc.id, mapPropertyWithRole(doc, appProfileId, "owner"));
-  }
+  for (const profileId of profileIds) {
+    const ownedSnap = await db()
+      .collection("properties")
+      .where("app_profile_id", "==", profileId)
+      .limit(100)
+      .get();
+    for (const d of ownedSnap.docs) {
+      const doc = snapToDoc(d);
+      if (!doc) continue;
+      byId.set(doc.id, mapPropertyWithRole(doc, profileId, "owner"));
+    }
 
-  const shared = await listSharedPropertyIdsForProfile(appProfileId);
-  for (const {propertyId, role} of shared) {
-    if (byId.has(propertyId)) continue;
-    const doc = snapToDoc(
-      await db().collection("properties").doc(propertyId).get()
-    );
-    if (!doc) continue;
-    byId.set(propertyId, mapPropertyWithRole(doc, appProfileId, role));
+    const shared = await listSharedPropertyIdsForProfile(profileId);
+    for (const {propertyId, role} of shared) {
+      if (byId.has(propertyId)) continue;
+      const doc = snapToDoc(
+        await db().collection("properties").doc(propertyId).get()
+      );
+      if (!doc) continue;
+      byId.set(propertyId, mapPropertyWithRole(doc, profileId, role));
+    }
   }
 
   const rows = Array.from(byId.values());
@@ -180,6 +184,11 @@ export async function updatePropertyForAppProfile(
     "lease_end_date",
     "lease_term",
     "tour_scheduled_at",
+    "tour_completed_at",
+    "tour_completed_source",
+    "move_in_baseline_inspection_id",
+    "next_check_in_at",
+    "check_in_reminder_opt_in",
     "state_code",
     "status",
     "street",
@@ -187,6 +196,9 @@ export async function updatePropertyForAppProfile(
     "city",
     "zip",
     "listing_url",
+    "application_file",
+    "application_file_name",
+    "applied_at",
   ] as const;
   for (const k of keys) {
     if (patch[k] !== undefined) {
@@ -200,13 +212,49 @@ export async function updatePropertyForAppProfile(
         const raw = patch[k];
         data[k] = raw != null && String(raw).trim() ?
           String(raw).trim() : null;
-      } else if (k === "tour_scheduled_at") {
+      } else if (
+        k === "tour_scheduled_at" ||
+        k === "tour_completed_at" ||
+        k === "next_check_in_at" ||
+        k === "applied_at"
+      ) {
         const raw = patch[k];
         data[k] = raw != null && String(raw).trim() ?
           String(raw).trim() : null;
-        // Reschedule reminders whenever tour time changes.
-        data.tour_reminder_1d_sent_at = null;
-        data.tour_reminder_30m_sent_at = null;
+        if (k === "tour_scheduled_at") {
+          // Reschedule reminders whenever tour time changes.
+          data.tour_reminder_1d_sent_at = null;
+          data.tour_reminder_30m_sent_at = null;
+        }
+        if (k === "next_check_in_at") {
+          data.check_in_reminder_sent_at = null;
+        }
+      } else if (k === "tour_completed_source") {
+        const raw = patch[k];
+        const allowed = new Set([
+          "confirmed",
+          "inspection",
+          "schedule_inferred",
+        ]);
+        if (raw == null || String(raw).trim() === "") {
+          data[k] = null;
+        } else {
+          const v = String(raw).trim();
+          data[k] = allowed.has(v) ? v : null;
+        }
+      } else if (k === "move_in_baseline_inspection_id") {
+        const raw = patch[k];
+        data[k] = raw != null && String(raw).trim() ?
+          String(raw).trim() : null;
+      } else if (
+        k === "application_file" ||
+        k === "application_file_name"
+      ) {
+        const raw = patch[k];
+        data[k] = raw != null && String(raw).trim() ?
+          String(raw).trim() : null;
+      } else if (k === "check_in_reminder_opt_in") {
+        data[k] = patch[k] === true;
       } else {
         data[k] = patch[k];
       }
@@ -230,6 +278,15 @@ export async function updatePropertyForAppProfile(
     if (lease == null || String(lease).trim() === "") {
       throw new Error("LEASE_REQUIRED_FOR_ACTIVE");
     }
+  }
+
+  // Stamp applied_at when moving into Applied (unless caller set it).
+  const promotingToApplied =
+    data.status !== undefined &&
+    nextStatus === "applied" &&
+    prevStatus !== "applied";
+  if (promotingToApplied && data.applied_at === undefined) {
+    data.applied_at = nowIso();
   }
 
   const ref = db().collection("properties").doc(propertyId);

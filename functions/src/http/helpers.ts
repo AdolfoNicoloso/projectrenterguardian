@@ -20,6 +20,17 @@ export const UPLOAD_FN_OPTS = {
   timeoutSeconds: 120,
   concurrency: 20,
 };
+/**
+ * Media read proxy (getFile). Needs headroom when signed URLs fail and
+ * grids stampede concurrent thumb downloads through the function.
+ */
+export const MEDIA_READ_FN_OPTS = {
+  region: REGION,
+  cors: true as const,
+  memory: "1GiB" as const,
+  timeoutSeconds: 60,
+  concurrency: 40,
+};
 
 export type Res = {
   set: (name: string, value: string) => void;

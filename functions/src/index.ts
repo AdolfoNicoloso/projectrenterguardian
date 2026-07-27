@@ -54,6 +54,7 @@ export {
   deletePhoto,
   getFile,
   createAssignment,
+  reorderPhotos,
   getAssignments,
 } from "./http/photos";
 

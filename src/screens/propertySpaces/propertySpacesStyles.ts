@@ -40,7 +40,28 @@ export const propertySpacesStyles = StyleSheet.create({
     minHeight: 160,
   },
   unassignedCard: {
-    marginTop: spacing.md,
+    marginBottom: spacing.md,
+    borderStyle: 'dashed',
+    ...(Platform.OS === 'web'
+      ? ({
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+        } as object)
+      : {}),
+  },
+  unassignedPrompt: {
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.regular,
+    marginTop: spacing.xs,
+  },
+  unassignedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  unassignedAddBtn: {
+    padding: spacing.xs,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : {}),
   },
   cardPlaceholder: {
     opacity: 0.35,
@@ -85,15 +106,62 @@ export const propertySpacesStyles = StyleSheet.create({
     fontFamily: typography.fontFamily.regular,
     marginBottom: spacing.xs,
   },
-  photoRow: { marginTop: spacing.sm },
+  photoRow: {
+    marginTop: spacing.xs,
+    // Let armed scale/border/shadow paint outside the 88px thumb
+    overflow: 'visible',
+  },
+  photoRowContent: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  photoInsertLine: {
+    width: 3,
+    height: 72,
+    borderRadius: 2,
+    marginHorizontal: 1,
+    alignSelf: 'center',
+    zIndex: 4,
+  },
+  emptyDropRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+    minHeight: 88,
+  },
+  thumbSlot: {
+    width: 96,
+    height: 112,
+    marginRight: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'visible',
+  },
   thumb: {
     width: 88,
     height: 88,
     borderRadius: 10,
-    marginRight: spacing.sm,
     overflow: 'hidden',
   },
-  thumbImage: { width: '100%', height: '100%' },
+  thumbArmed: {
+    transform: [{ scale: 1.08 }],
+    zIndex: 5,
+  },
+  thumbDragging: {
+    opacity: 0.35,
+  },
+  thumbImage: { width: '100%', height: '100%', borderRadius: 10 },
+  floatingThumb: {
+    position: 'absolute',
+    width: 88,
+    height: 88,
+    borderRadius: 10,
+    borderWidth: 2,
+    overflow: 'hidden',
+    zIndex: 60,
+  },
+  floatingThumbImage: { width: '100%', height: '100%' },
   emptyPhotos: {
     marginTop: spacing.sm,
     fontSize: typography.fontSize.sm,

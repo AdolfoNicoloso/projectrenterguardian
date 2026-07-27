@@ -19,15 +19,13 @@ export function reorderList<T>(list: T[], from: number, to: number): T[] {
   return next;
 }
 
-/** Hit-test pointer (content coords) against card layouts; nearest center as fallback. */
-export function indexFromContentPoint(
+/** Exact hit-test only (no nearest fallback). */
+export function hitIndexFromContentPoint(
   localX: number,
   localY: number,
   layouts: Record<number, CardLayout>,
-  count: number,
-  fallback: number
-): number {
-  if (count <= 0) return fallback;
+  count: number
+): number | null {
   for (let i = 0; i < count; i++) {
     const L = layouts[i];
     if (!L) continue;
@@ -40,6 +38,20 @@ export function indexFromContentPoint(
       return i;
     }
   }
+  return null;
+}
+
+/** Hit-test pointer (content coords) against card layouts; nearest center as fallback. */
+export function indexFromContentPoint(
+  localX: number,
+  localY: number,
+  layouts: Record<number, CardLayout>,
+  count: number,
+  fallback: number
+): number {
+  if (count <= 0) return fallback;
+  const hit = hitIndexFromContentPoint(localX, localY, layouts, count);
+  if (hit != null) return hit;
 
   let best = fallback;
   let bestDist = Number.POSITIVE_INFINITY;

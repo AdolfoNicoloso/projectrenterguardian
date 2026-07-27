@@ -353,14 +353,18 @@ async function convertHeicToJpeg(
 /**
  * Downscale images whose longest edge exceeds MAX_UPLOAD_IMAGE_EDGE.
  * Returns null when resize is unnecessary or unavailable.
+ * When width/height are missing (common for DocumentPicker), probes the
+ * image so large web uploads still get resized.
  */
 async function resizeImageForUpload(
   asset: ImagePickerAsset
 ): Promise<ProcessedImage | null> {
-  const width = asset.width || 0;
-  const height = asset.height || 0;
-  const longest = Math.max(width, height);
-  if (!asset.uri || longest <= 0 || longest <= MAX_UPLOAD_IMAGE_EDGE) {
+  if (!asset.uri) return null;
+
+  const declaredW = asset.width || 0;
+  const declaredH = asset.height || 0;
+  const declaredLongest = Math.max(declaredW, declaredH);
+  if (declaredLongest > 0 && declaredLongest <= MAX_UPLOAD_IMAGE_EDGE) {
     return null;
   }
 
@@ -369,14 +373,22 @@ async function resizeImageForUpload(
       const response = await fetch(asset.uri);
       const blob = await response.blob();
       const bitmap = await createImageBitmap(blob);
-      const scale = MAX_UPLOAD_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height);
+      const longest = Math.max(bitmap.width, bitmap.height);
+      if (longest <= MAX_UPLOAD_IMAGE_EDGE) {
+        bitmap.close?.();
+        return null;
+      }
+      const scale = MAX_UPLOAD_IMAGE_EDGE / longest;
       const targetW = Math.max(1, Math.round(bitmap.width * scale));
       const targetH = Math.max(1, Math.round(bitmap.height * scale));
       const canvas = document.createElement('canvas');
       canvas.width = targetW;
       canvas.height = targetH;
       const ctx = canvas.getContext('2d');
-      if (!ctx) return null;
+      if (!ctx) {
+        bitmap.close?.();
+        return null;
+      }
       ctx.drawImage(bitmap, 0, 0, targetW, targetH);
       bitmap.close?.();
       const outBlob: Blob | null = await new Promise((resolve) =>
@@ -395,9 +407,12 @@ async function resizeImageForUpload(
       };
     }
 
-    const scale = MAX_UPLOAD_IMAGE_EDGE / longest;
-    const targetW = Math.max(1, Math.round(width * scale));
-    const targetH = Math.max(1, Math.round(height * scale));
+    // Native: need known dimensions for ImageManipulator resize.
+    if (declaredLongest <= 0) return null;
+
+    const scale = MAX_UPLOAD_IMAGE_EDGE / declaredLongest;
+    const targetW = Math.max(1, Math.round(declaredW * scale));
+    const targetH = Math.max(1, Math.round(declaredH * scale));
     const result = await ImageManipulator.manipulateAsync(
       asset.uri,
       [{ resize: { width: targetW, height: targetH } }],

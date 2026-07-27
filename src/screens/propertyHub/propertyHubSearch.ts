@@ -1,12 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isAppliedPropertyStatus } from '../../constants/propertyStatuses';
 import type { Property } from '../../types';
-import { getTourScheduleBucket } from '../../utils/tourSchedule';
+import { getToursHubStage } from '../../utils/tourSchedule';
 import type { ToursListFilter } from './types';
 
 /** Device-local throttle for the Tours “tour scheduled?” boot modal. */
 const TOUR_SCHEDULE_PROMPT_LAST_SHOWN_KEY = 'tour_schedule_prompt_last_shown_at';
 const TOUR_SCHEDULE_PROMPT_THROTTLE_MS = 60 * 60 * 1000; // 1 hour
+
+const TOUR_DOCUMENTED_PROMPT_PREFIX = 'tour_documented_prompt_shown:';
 
 export async function shouldShowTourSchedulePrompt(): Promise<boolean> {
   try {
@@ -25,6 +27,33 @@ export async function markTourSchedulePromptShown(): Promise<void> {
     await AsyncStorage.setItem(TOUR_SCHEDULE_PROMPT_LAST_SHOWN_KEY, new Date().toISOString());
   } catch (err) {
     console.error('Error persisting tour schedule prompt throttle:', err);
+  }
+}
+
+/** Per-property: only prompt “done documenting?” once. */
+export async function shouldShowTourDocumentedPrompt(
+  propertyId: string
+): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(
+      `${TOUR_DOCUMENTED_PROMPT_PREFIX}${propertyId}`
+    );
+    return !raw;
+  } catch {
+    return true;
+  }
+}
+
+export async function markTourDocumentedPromptShown(
+  propertyId: string
+): Promise<void> {
+  try {
+    await AsyncStorage.setItem(
+      `${TOUR_DOCUMENTED_PROMPT_PREFIX}${propertyId}`,
+      new Date().toISOString()
+    );
+  } catch (err) {
+    console.error('Error persisting tour documented prompt:', err);
   }
 }
 
@@ -53,7 +82,8 @@ export function propertyMatchesToursFilter(
   if (filter === 'applied') {
     return isAppliedPropertyStatus(property.status);
   }
-  const bucket = getTourScheduleBucket(property);
-  if (filter === 'scheduled') return bucket === 'upcoming';
-  return bucket === 'toured';
+  const stage = getToursHubStage(property);
+  if (filter === 'scheduled') return stage.id === 'scheduled';
+  // "Toured" filter includes confirmed toured and soft "likely toured".
+  return stage.id === 'toured' || stage.id === 'likely_toured';
 }

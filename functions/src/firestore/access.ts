@@ -3,6 +3,7 @@
  */
 
 import {db, snapToDoc, type FsDoc} from "./db";
+import {siblingAppProfileIds} from "./profiles";
 
 export type PropertyRole = "owner" | "edit" | "view";
 
@@ -31,6 +32,7 @@ export function roleMeetsMinimum(
 
 /**
  * Loads a property and resolves the caller's role (owner or active member).
+ * Considers all app_profiles sharing the same Firebase uid (legacy duplicates).
  * @param {string} appProfileId Caller profile id.
  * @param {string} propertyId Property id.
  * @return {Promise<PropertyAccess|null>} Access or null if none.
@@ -44,23 +46,26 @@ export async function getPropertyAccess(
   if (!property) {
     return null;
   }
-  if (property.app_profile_id === appProfileId) {
+  const profileIds = await siblingAppProfileIds(appProfileId);
+  const ownerId = String(property.app_profile_id || "");
+  if (ownerId && profileIds.includes(ownerId)) {
     return {property, role: "owner"};
   }
-  const memberSnap = await db()
-    .collection("property_members")
-    .where("property_id", "==", propertyId)
-    .where("app_profile_id", "==", appProfileId)
-    .where("status", "==", "active")
-    .limit(1)
-    .get();
-  if (memberSnap.empty) {
-    return null;
+  for (const profileId of profileIds) {
+    const memberSnap = await db()
+      .collection("property_members")
+      .where("property_id", "==", propertyId)
+      .where("app_profile_id", "==", profileId)
+      .where("status", "==", "active")
+      .limit(1)
+      .get();
+    if (memberSnap.empty) continue;
+    const member = snapToDoc(memberSnap.docs[0]);
+    const raw = String(member?.role || "").toLowerCase();
+    const role: PropertyRole = raw === "edit" ? "edit" : "view";
+    return {property, role};
   }
-  const member = snapToDoc(memberSnap.docs[0]);
-  const raw = String(member?.role || "").toLowerCase();
-  const role: PropertyRole = raw === "edit" ? "edit" : "view";
-  return {property, role};
+  return null;
 }
 
 /**
@@ -142,9 +147,13 @@ export async function fetchPhotoById(
 }
 
 /**
- * Ensures the caller can access the property that owns a media file.
+ * Ensures the caller can access a media file.
+ * Allowed when:
+ * - the file is linked to a photo on a property they can access, or
+ * - the file is the property's application PDF, or
+ * - they (or a sibling profile) own the media_files row.
  * @param {string} appProfileId Caller profile id.
- * @param {string} fileId Storage file id stored on a photo.
+ * @param {string} fileId Storage / media_files id.
  * @return {Promise<boolean>} True when allowed.
  */
 export async function canAccessFile(
@@ -156,14 +165,43 @@ export async function canAccessFile(
     .where("file", "==", fileId)
     .limit(1)
     .get();
-  if (snap.empty) {
-    return false;
+  if (!snap.empty) {
+    const photo = snapToDoc(snap.docs[0]);
+    const propertyId = photo?.property_id;
+    if (typeof propertyId === "string" && propertyId) {
+      const access = await getPropertyAccess(appProfileId, propertyId);
+      if (access != null) {
+        return true;
+      }
+    }
   }
-  const photo = snapToDoc(snap.docs[0]);
-  const propertyId = photo?.property_id;
-  if (typeof propertyId !== "string" || !propertyId) {
-    return false;
+
+  // Application PDFs are stored on properties.application_file (no photo row).
+  const appSnap = await db()
+    .collection("properties")
+    .where("application_file", "==", fileId)
+    .limit(1)
+    .get();
+  if (!appSnap.empty) {
+    const property = snapToDoc(appSnap.docs[0]);
+    if (property?.id) {
+      const access = await getPropertyAccess(appProfileId, property.id);
+      if (access != null) {
+        return true;
+      }
+    }
   }
-  const access = await getPropertyAccess(appProfileId, propertyId);
-  return access != null;
+
+  // Uploader can read their own media_files row.
+  const mediaSnap = await db().collection("media_files").doc(fileId).get();
+  const media = snapToDoc(mediaSnap);
+  const ownerId = media?.app_profile_id;
+  if (typeof ownerId === "string" && ownerId) {
+    const profileIds = await siblingAppProfileIds(appProfileId);
+    if (profileIds.includes(ownerId)) {
+      return true;
+    }
+  }
+
+  return false;
 }

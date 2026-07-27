@@ -45,10 +45,26 @@ export async function createAssignment(
     date_created: ts,
     date_updated: ts,
   });
+  // Append at end of target space order.
+  const siblings = await db()
+    .collection("photos")
+    .where("property_id", "==", propertyId)
+    .where("space_id", "==", spaceId)
+    .limit(500)
+    .get();
+  let maxOrdinal = -1;
+  for (const d of siblings.docs) {
+    if (d.id === photoId) continue;
+    const doc = snapToDoc(d);
+    if (!doc) continue;
+    const o = Number(doc.ordinal);
+    if (Number.isFinite(o) && o > maxOrdinal) maxOrdinal = o;
+  }
   // Keep photo in sync with assignment.
   await db().collection("photos").doc(photoId).update({
     space_id: spaceId,
     assignment_status: "confirmed",
+    ordinal: maxOrdinal + 1,
     date_updated: ts,
   });
   const doc = snapToDoc(await ref.get());

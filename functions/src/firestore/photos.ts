@@ -19,6 +19,50 @@ import {
   type NoteEntry,
 } from "./notes";
 
+type PhotoDoc = NonNullable<ReturnType<typeof snapToDoc>>;
+
+/**
+ * Stable display order: ordinal ascending, then captured_at, then id.
+ * @param {PhotoDoc} a Photo doc.
+ * @param {PhotoDoc} b Photo doc.
+ * @return {number} Compare result.
+ */
+function comparePhotoOrder(a: PhotoDoc, b: PhotoDoc): number {
+  const oa = Number.isFinite(Number(a.ordinal)) ? Number(a.ordinal) : 1e9;
+  const ob = Number.isFinite(Number(b.ordinal)) ? Number(b.ordinal) : 1e9;
+  if (oa !== ob) return oa - ob;
+  const ca = String(a.captured_at || "");
+  const cb = String(b.captured_at || "");
+  if (ca !== cb) return ca.localeCompare(cb);
+  return String(a.id || "").localeCompare(String(b.id || ""));
+}
+
+/**
+ * Next ordinal for a space (or unassigned when spaceId is empty).
+ * @param {string} propertyId Property id.
+ * @param {string} spaceId Space id or "".
+ * @return {Promise<number>} Next ordinal.
+ */
+async function nextOrdinalForSpace(
+  propertyId: string,
+  spaceId: string
+): Promise<number> {
+  const snap = await db()
+    .collection("photos")
+    .where("property_id", "==", propertyId)
+    .where("space_id", "==", spaceId)
+    .limit(500)
+    .get();
+  let max = -1;
+  for (const d of snap.docs) {
+    const doc = snapToDoc(d);
+    if (!doc) continue;
+    const o = Number(doc.ordinal);
+    if (Number.isFinite(o) && o > max) max = o;
+  }
+  return max + 1;
+}
+
 /**
  * @param {string} appProfileId Owner profile id.
  * @param {string} propertyId Property id.
@@ -61,9 +105,10 @@ export async function listPhotosForProperty(
   }
 
   const lean = fields === "gallery";
-  return photos.map((d) =>
-    lean ? mapPhotoToGalleryClient(d) : mapPhotoToClient(d)
-  );
+  return photos
+    .slice()
+    .sort(comparePhotoOrder)
+    .map((d) => (lean ? mapPhotoToGalleryClient(d) : mapPhotoToClient(d)));
 }
 
 /**
@@ -121,6 +166,7 @@ export async function createPhoto(
       (input.assignment_status || "unassigned"),
     notes_entries: notesEntries,
     notes: notesEntriesToLegacyText(notesEntries),
+    ordinal: await nextOrdinalForSpace(input.property, input.space || ""),
     date_created: ts,
     date_updated: ts,
   };
@@ -205,10 +251,16 @@ export async function updatePhoto(
       if (input.assignment_status === undefined) {
         data.assignment_status = "confirmed";
       }
+      if (String(raw.space_id || "") !== String(input.space)) {
+        data.ordinal = await nextOrdinalForSpace(propertyId, input.space);
+      }
     } else {
       data.space_id = "";
       if (input.assignment_status === undefined) {
         data.assignment_status = "unassigned";
+      }
+      if (String(raw.space_id || "") !== "") {
+        data.ordinal = await nextOrdinalForSpace(propertyId, "");
       }
     }
   }
@@ -219,6 +271,69 @@ export async function updatePhoto(
     throw new Error("Firestore: update photo failed");
   }
   return mapPhotoToClient(doc);
+}
+
+/**
+ * Persist photo order within a space or the unassigned tray.
+ * @param {string} appProfileId Owner profile id.
+ * @param {string} propertyId Property id.
+ * @param {string} spaceId Space id, or "" for unassigned.
+ * @param {string[]} orderedPhotoIds Photo ids left → right.
+ * @return {Promise<Record<string, unknown>[]>} Updated photos for the property.
+ */
+export async function reorderPhotosForProperty(
+  appProfileId: string,
+  propertyId: string,
+  spaceId: string,
+  orderedPhotoIds: string[]
+): Promise<Record<string, unknown>[]> {
+  if (!Array.isArray(orderedPhotoIds) || orderedPhotoIds.length === 0) {
+    throw new Error("VALIDATION");
+  }
+  await requirePropertyAccess(appProfileId, propertyId, "edit");
+  const normalizedSpace = spaceId || "";
+  if (
+    normalizedSpace &&
+    !(await isSpaceOnProperty(propertyId, normalizedSpace))
+  ) {
+    throw new Error("BAD_SPACE");
+  }
+
+  const uniqueIds = [...new Set(orderedPhotoIds.map(String))];
+  const snaps = await Promise.all(
+    uniqueIds.map((id) => db().collection("photos").doc(id).get())
+  );
+
+  for (let i = 0; i < snaps.length; i++) {
+    const doc = snapToDoc(snaps[i]);
+    if (!doc || String(doc.property_id || "") !== propertyId) {
+      throw new Error("FORBIDDEN");
+    }
+    if (String(doc.space_id || "") !== normalizedSpace) {
+      throw new Error("FORBIDDEN");
+    }
+  }
+
+  const ts = nowIso();
+  let batch = db().batch();
+  let ops = 0;
+  for (let i = 0; i < uniqueIds.length; i++) {
+    batch.update(db().collection("photos").doc(uniqueIds[i]), {
+      ordinal: i,
+      date_updated: ts,
+    });
+    ops += 1;
+    if (ops >= 400) {
+      await batch.commit();
+      batch = db().batch();
+      ops = 0;
+    }
+  }
+  if (ops > 0) {
+    await batch.commit();
+  }
+
+  return listPhotosForProperty(appProfileId, propertyId);
 }
 
 /**

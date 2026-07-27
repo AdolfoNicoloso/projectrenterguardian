@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -13,8 +13,10 @@ import { useTheme } from '../theme/useTheme';
 import { useDesktopLayout } from '../hooks/useDesktopLayout';
 import type { Photo } from '../types';
 import { getAuthenticatedMediaFileUrl } from '../utils/fileUrl';
+import { formatGalleryNotesText } from '../utils/notes';
+import { photosService } from '../services/photosService';
 import type { ThemeColors } from '../theme/colors';
-import { PRGImageLightbox } from './PRGImageLightbox';
+import { PRGPhotoGallery, type GalleryPhoto } from './PRGPhotoGallery';
 
 interface PRGPhotoGridProps {
   photos: Photo[];
@@ -23,10 +25,14 @@ interface PRGPhotoGridProps {
   onPhotoSelect: (photoId: string) => void;
   onBulkAction?: (action: string) => void;
   showSelection?: boolean;
-  /** Long-press opens a zoomable preview. */
+  /** Long-press opens the SharePoint-style gallery. */
   enablePreviewOnLongPress?: boolean;
-  /** Tap opens a zoomable preview (skips onPhotoPress). */
+  /** Tap opens the SharePoint-style gallery (skips onPhotoPress). */
   enablePreviewOnTap?: boolean;
+  /** Label for gallery header (defaults to Unassigned / space id). */
+  spaceLabelForPhoto?: (photo: Photo) => string;
+  /** Shown as Edit in gallery when preview is open. */
+  onEditPhoto?: (photoId: string) => void;
 }
 
 type PhotoImageProps = {
@@ -219,29 +225,43 @@ export const PRGPhotoGrid: React.FC<PRGPhotoGridProps> = ({
   showSelection = false,
   enablePreviewOnLongPress = false,
   enablePreviewOnTap = false,
+  spaceLabelForPhoto,
+  onEditPhoto,
 }) => {
   const { colors } = useTheme();
   const isDesktop = useDesktopLayout();
-  const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
-  const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
+  const [galleryVisible, setGalleryVisible] = useState(false);
+  const [galleryIndex, setGalleryIndex] = useState(0);
   // Mobile: 3 columns; desktop web: 5 columns for denser browsing.
   const photoWidthStyle: ViewStyle = { width: isDesktop ? '20%' : '33.33%' };
 
-  useEffect(() => {
-    if (previewPhoto?.file) {
-      getAuthenticatedMediaFileUrl(previewPhoto.file, 'display')
-        .then(setPreviewImageUri)
-        .catch(() => {
-          setPreviewImageUri(null);
-        });
-    } else {
-      setPreviewImageUri(null);
-    }
-  }, [previewPhoto]);
+  const labelFor = useCallback(
+    (photo: Photo) => {
+      if (spaceLabelForPhoto) return spaceLabelForPhoto(photo);
+      return photo.space ? 'Assigned' : 'Unassigned';
+    },
+    [spaceLabelForPhoto]
+  );
 
-  const openPreview = useCallback((photo: Photo) => {
-    setPreviewPhoto(photo);
-  }, []);
+  const galleryPhotos: GalleryPhoto[] = useMemo(
+    () =>
+      photos.map((p) => ({
+        id: p.id,
+        file: p.file,
+        spaceLabel: labelFor(p),
+        notesText: formatGalleryNotesText(p.notes_entries, p.notes),
+      })),
+    [photos, labelFor]
+  );
+
+  const openPreview = useCallback(
+    (photo: Photo) => {
+      const idx = photos.findIndex((p) => p.id === photo.id);
+      setGalleryIndex(idx >= 0 ? idx : 0);
+      setGalleryVisible(true);
+    },
+    [photos]
+  );
 
   const handleLongPress = useCallback(
     (photo: Photo) => {
@@ -264,11 +284,6 @@ export const PRGPhotoGrid: React.FC<PRGPhotoGridProps> = ({
     },
     [enablePreviewOnTap, showSelection, openPreview, onPhotoPress]
   );
-
-  const closePreview = () => {
-    setPreviewPhoto(null);
-    setPreviewImageUri(null);
-  };
 
   if (photos.length === 0) {
     return (
@@ -301,10 +316,23 @@ export const PRGPhotoGrid: React.FC<PRGPhotoGridProps> = ({
       </View>
 
       {(enablePreviewOnLongPress || enablePreviewOnTap) && (
-        <PRGImageLightbox
-          visible={previewPhoto !== null}
-          uri={previewImageUri}
-          onClose={closePreview}
+        <PRGPhotoGallery
+          visible={galleryVisible}
+          photos={galleryPhotos}
+          initialIndex={galleryIndex}
+          onClose={() => setGalleryVisible(false)}
+          onEdit={
+            onEditPhoto
+              ? (photoId) => {
+                  setGalleryVisible(false);
+                  onEditPhoto(photoId);
+                }
+              : undefined
+          }
+          resolveNotes={async (photoId) => {
+            const photo = await photosService.getPhoto(photoId);
+            return formatGalleryNotesText(photo.notes_entries, photo.notes);
+          }}
         />
       )}
     </>
@@ -320,7 +348,7 @@ const styles = StyleSheet.create({
   photoContainer: {
     width: '33.33%',
     aspectRatio: 1,
-    padding: spacing.xs,
+    padding: 1,
     position: 'relative',
   },
   photo: {

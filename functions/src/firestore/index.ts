@@ -2,7 +2,11 @@
  * Firestore + Storage domain layer for Firebase Functions.
  */
 
-export type {DownloadedFile, SignedUploadSession, MediaVariant} from "./storage";
+export type {
+  DownloadedFile,
+  SignedUploadSession,
+  MediaVariant,
+} from "./storage";
 export {
   downloadByFileId,
   uploadBinary,
@@ -31,6 +35,7 @@ export * from "./sharing";
 export * from "./publicShares";
 export * from "./notifications";
 export * from "./tourReminders";
+export * from "./checkInReminders";
 export {
   fetchPropertyIfOwned,
   isPropertyOwned,

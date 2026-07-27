@@ -15,3 +15,4 @@ export * from './appProfileService';
 export * from './notificationsService';
 export * from './propertyMembersService';
 export * from './publicShareService';
+export * from './applicationDocumentService';

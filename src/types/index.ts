@@ -18,6 +18,22 @@ export interface Property {
    * Used for Touring properties; null/undefined when unset.
    */
   tour_scheduled_at?: string | null;
+  /**
+   * When the user confirmed (or the system recorded) that this place was toured.
+   * Distinct from schedule-based “past tour time.”
+   */
+  tour_completed_at?: string | null;
+  /** How tour_completed_at was set. */
+  tour_completed_source?:
+    | 'confirmed'
+    | 'inspection'
+    | 'schedule_inferred'
+    | null;
+  /** Completed tour (or other) inspection used as the move-in baseline. */
+  move_in_baseline_inspection_id?: string | null;
+  /** Opt-in mid-tenancy check-in reminder (ISO). */
+  next_check_in_at?: string | null;
+  check_in_reminder_opt_in?: boolean | null;
   nickname?: string;
   state_code?: string;
   status?: string;
@@ -27,6 +43,15 @@ export interface Property {
   zip?: number;
   /** Optional listing / property link (http/https URL). */
   listing_url?: string;
+  /**
+   * Opaque media_files id for a submitted rental application PDF
+   * (via createMediaUpload / getFile).
+   */
+  application_file?: string | null;
+  /** Original filename for the application PDF (display only). */
+  application_file_name?: string | null;
+  /** When status became applied (ISO). */
+  applied_at?: string | null;
   date_created?: string;
   date_updated?: string;
 }
@@ -158,6 +183,8 @@ export interface Photo {
   notes_entries?: NoteEntry[];
   /** @deprecated Prefer notes_entries. */
   notes?: string;
+  /** Display order within space (or unassigned tray). */
+  ordinal?: number;
   date_created?: string;
   date_updated?: string;
 }
@@ -224,6 +251,7 @@ export type AppNotificationType =
   | 'property_invite'
   | 'tour_reminder_1d'
   | 'tour_reminder_30m'
+  | 'check_in_reminder'
   | string;
 
 export interface AppNotification {

@@ -4,6 +4,8 @@
 **Do not invent market size, pricing, legal claims, or competitor facts from this file alone.** Use only reputable external sources for market/legal/finance claims.  
 **As of:** July 2026 (post Firestore + Storage backend cutover).
 
+> **Updated capabilities (post-MVP expansion):** For what the product can do *now*—including Tours/Rents hubs, collaboration, public shares, and check-ins—use [PRODUCT_CAPABILITIES_FOR_BUSINESS.md](./PRODUCT_CAPABILITIES_FOR_BUSINESS.md). Keep this MVP brief for historical scope and early strategy context.
+
 ---
 
 ## 1. What the business / product is (from the product itself)

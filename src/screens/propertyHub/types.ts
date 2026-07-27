@@ -20,7 +20,7 @@ export type PropertyHubCardProps = {
   statusLabel?: string;
   /**
    * Tours hub: single combined stage badge
-   * (Applied | Scheduled | Toured | Not scheduled).
+   * (Applied | Scheduled | Toured | Likely toured | Ready to tour).
    */
   stageLabel?: string;
   stageVariant?: 'success' | 'warning' | 'default';

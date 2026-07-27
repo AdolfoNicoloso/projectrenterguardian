@@ -12,9 +12,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   PRGButton,
   PRGHeader,
-  PRGImageLightbox,
-  openImageWithNativeZoom,
+  PRGPhotoGallery,
   ScreenContainer,
+  type GalleryPhoto,
 } from '../../src/components';
 import {
   publicShareService,
@@ -51,7 +51,9 @@ export default function PublicShareScreen() {
   const [preview, setPreview] = useState<PublicPropertyPreview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [lightboxUri, setLightboxUri] = useState<string | null>(null);
+  const [galleryPhotos, setGalleryPhotos] = useState<GalleryPhoto[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const [galleryVisible, setGalleryVisible] = useState(false);
 
   useEffect(() => {
     if (!shareToken) {
@@ -91,12 +93,29 @@ export default function PublicShareScreen() {
     return map;
   }, [preview]);
 
-  const openPhoto = (photo: PublicPropertyPreview['photos'][number]) => {
-    const uri =
-      photo.display_url ||
-      publicShareService.getPublicFileUrl(shareToken, photo.file, 'display');
-    if (openImageWithNativeZoom(uri)) return;
-    setLightboxUri(uri);
+  const displayUri = (photo: PublicPropertyPreview['photos'][number]) =>
+    photo.display_url ||
+    publicShareService.getPublicFileUrl(shareToken, photo.file, 'display');
+
+  const spaceLabelForId = (spaceId: string | null | undefined) => {
+    if (!spaceId) return 'Unassigned';
+    const space = preview?.spaces.find((s) => s.id === spaceId);
+    return space?.display_name || 'Unassigned';
+  };
+
+  const openGallery = (
+    list: PublicPropertyPreview['photos'],
+    photo: PublicPropertyPreview['photos'][number]
+  ) => {
+    const items: GalleryPhoto[] = list.map((p) => ({
+      id: p.id,
+      uri: displayUri(p),
+      spaceLabel: spaceLabelForId(p.space),
+    }));
+    const idx = Math.max(0, items.findIndex((p) => p.id === photo.id));
+    setGalleryPhotos(items);
+    setGalleryIndex(idx >= 0 ? idx : 0);
+    setGalleryVisible(true);
   };
 
   const thumbUri = (photo: PublicPropertyPreview['photos'][number]) =>
@@ -195,7 +214,7 @@ export default function PublicShareScreen() {
                         {spacePhotos.map((photo) => (
                           <Pressable
                             key={photo.id}
-                            onPress={() => openPhoto(photo)}
+                            onPress={() => openGallery(spacePhotos, photo)}
                             accessibilityRole="imagebutton"
                             accessibilityLabel="Open photo"
                           >
@@ -231,7 +250,9 @@ export default function PublicShareScreen() {
                   {photosBySpace._unassigned.map((photo) => (
                     <Pressable
                       key={photo.id}
-                      onPress={() => openPhoto(photo)}
+                      onPress={() =>
+                        openGallery(photosBySpace._unassigned, photo)
+                      }
                       accessibilityRole="imagebutton"
                       accessibilityLabel="Open photo"
                     >
@@ -279,10 +300,11 @@ export default function PublicShareScreen() {
         )}
       </ScrollView>
 
-      <PRGImageLightbox
-        visible={!!lightboxUri}
-        uri={lightboxUri}
-        onClose={() => setLightboxUri(null)}
+      <PRGPhotoGallery
+        visible={galleryVisible}
+        photos={galleryPhotos}
+        initialIndex={galleryIndex}
+        onClose={() => setGalleryVisible(false)}
       />
     </ScreenContainer>
   );
@@ -358,7 +380,7 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 10,
-    marginRight: spacing.sm,
+    marginRight: 2,
   },
   ctaCard: {
     borderWidth: 1,

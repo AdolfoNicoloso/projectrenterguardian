@@ -26,10 +26,15 @@ export const processTourReminders = onSchedule(
     timeZone: "Etc/UTC",
   },
   async () => {
-    const result = await domain.processDueTourReminders();
+    const tour = await domain.processDueTourReminders();
     console.info(
       "[processTourReminders]",
-      `checked=${result.checked} sent=${result.sent}`
+      `checked=${tour.checked} sent=${tour.sent}`
+    );
+    const checkIn = await domain.processDueCheckInReminders();
+    console.info(
+      "[processCheckInReminders]",
+      `checked=${checkIn.checked} sent=${checkIn.sent}`
     );
   }
 );

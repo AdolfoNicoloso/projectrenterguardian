@@ -7,8 +7,10 @@ import { useTheme } from '../theme/useTheme';
 import { formatDisplayDate, leaseEndFromStartAndTerm } from '../utils/dateTime';
 import { isValidOptionalHttpUrl } from '../utils/validation';
 import { Routes } from '../navigation/routes';
-import { PROPERTY_STATUSES, getPropertyStatusLabel, isActivePropertyStatus, isToursHubPropertyStatus, formatPropertyAddress, propertyDisplayName } from '../constants/propertyStatuses';
+import { PROPERTY_STATUSES, getPropertyStatusLabel, isActivePropertyStatus, isAppliedPropertyStatus, isTouringPropertyStatus, isToursHubPropertyStatus, formatPropertyAddress, propertyDisplayName } from '../constants/propertyStatuses';
 import { inspectionsService } from '../services/inspectionsService';
+import { hasTourCompleted } from '../utils/tourSchedule';
+import { getPropertyJourneyMilestones, isCheckInDue } from '../utils/propertyJourney';
 import type { Property } from '../types';
 
 function formatLeaseTerm(term?: number | null): string {
@@ -27,9 +29,15 @@ interface PropertyOverviewProps {
   onUpdateLeaseEnd?: (leaseEnd: string | null) => void;
   onUpdateLeaseTerm?: (leaseTerm: number | null) => void;
   onUpdateTourScheduledAt?: (tourScheduledAt: string | null) => void;
+  onMarkToured?: () => void;
+  onMarkApplied?: () => void;
+  onOpenApplication?: () => void;
+  onAttachApplication?: () => void;
   onDelete?: () => void;
   onManagePeople?: () => void;
   deleting?: boolean;
+  markingApplied?: boolean;
+  attachingApplication?: boolean;
   /** When true, open the tour date/time editor on mount (deep-link from Home). */
   initialEditingTour?: boolean;
 }
@@ -43,9 +51,15 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
   onUpdateLeaseEnd,
   onUpdateLeaseTerm,
   onUpdateTourScheduledAt,
+  onMarkToured,
+  onMarkApplied,
+  onOpenApplication,
+  onAttachApplication,
   onDelete,
   onManagePeople,
   deleting = false,
+  markingApplied = false,
+  attachingApplication = false,
   initialEditingTour = false,
 }) => {
   const router = useRouter();
@@ -236,6 +250,43 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
           numberOfLines={3}
         />
       </PRGCard>
+
+      {(() => {
+        const milestones = getPropertyJourneyMilestones(property);
+        return (
+          <PRGCard style={styles.journeyCard}>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>
+              Journey
+            </Text>
+            <View style={styles.journeyRow}>
+              {milestones.map((m) => (
+                <View
+                  key={m.id}
+                  style={[
+                    styles.journeyChip,
+                    {
+                      backgroundColor: m.done
+                        ? colors.primary + '22'
+                        : colors.backgroundSecondary,
+                      borderColor: m.done ? colors.primary : colors.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.journeyChipText,
+                      { color: m.done ? colors.primary : colors.textSecondary },
+                    ]}
+                  >
+                    {m.done ? '✓ ' : ''}
+                    {m.label}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </PRGCard>
+        );
+      })()}
 
       <PRGCard onPress={() => router.push(Routes.PROPERTIES.ADDRESS.EDIT(property.id))}>
         <Text style={[styles.label, { color: colors.textSecondary }]}>Address</Text>
@@ -566,6 +617,57 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
         )}
       </PRGCard>
 
+      {inToursPipeline ? (
+        <PRGCard>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>
+            Application
+          </Text>
+          <View style={styles.valueRow}>
+            <Text style={[styles.value, styles.valueFlex, { color: colors.text }]}>
+              {property.application_file
+                ? property.application_file_name || 'Application PDF'
+                : 'No PDF attached'}
+            </Text>
+          </View>
+          <Text style={[styles.helper, { color: colors.textSecondary, marginTop: spacing.sm }]}>
+            Keep a copy of the rental application you submitted.
+          </Text>
+          {property.application_file || onAttachApplication ? (
+            <View style={styles.applicationActions}>
+              {property.application_file && onOpenApplication ? (
+                <PRGButton
+                  title="Open PDF"
+                  onPress={onOpenApplication}
+                  variant="secondary"
+                  style={styles.actionButton}
+                  accessibilityLabel="Open application PDF"
+                />
+              ) : null}
+              {onAttachApplication ? (
+                <PRGButton
+                  title={
+                    attachingApplication
+                      ? 'Uploading…'
+                      : property.application_file
+                        ? 'Replace PDF'
+                        : 'Attach PDF'
+                  }
+                  onPress={onAttachApplication}
+                  variant="secondary"
+                  style={styles.actionButton}
+                  disabled={attachingApplication}
+                  accessibilityLabel={
+                    property.application_file
+                      ? 'Replace application PDF'
+                      : 'Attach application PDF'
+                  }
+                />
+              ) : null}
+            </View>
+          ) : null}
+        </PRGCard>
+      ) : null}
+
       {!canStartInspection ? (
         <PRGCard style={styles.inactiveNotice}>
           <Text style={[styles.helper, { color: colors.textSecondary, marginBottom: 0 }]}>
@@ -574,7 +676,12 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
         </PRGCard>
       ) : null}
 
-      {canStartInspection || showDraftButton || showArchiveButton || onManagePeople ? (
+      {canStartInspection ||
+      showDraftButton ||
+      showArchiveButton ||
+      onManagePeople ||
+      onMarkToured ||
+      onMarkApplied ? (
         <View style={styles.actionsStack}>
           {canStartInspection ? (
             <PRGButton
@@ -583,11 +690,19 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
                   ? incompleteTourId
                     ? 'Continue tour'
                     : 'Start Tour'
-                  : 'Start Inspection'
+                  : isCheckInDue(property)
+                    ? 'Start check-in'
+                    : 'Start Inspection'
               }
               onPress={() => {
                 if (inToursPipeline && incompleteTourId) {
                   router.push(`/(tabs)/inspections/${incompleteTourId}`);
+                  return;
+                }
+                if (!inToursPipeline && isCheckInDue(property)) {
+                  router.push(
+                    `/(tabs)/inspections/new?propertyId=${property.id}&inspectionType=periodic`
+                  );
                   return;
                 }
                 router.push(
@@ -597,6 +712,43 @@ export const PropertyOverview: React.FC<PropertyOverviewProps> = ({
                 );
               }}
               variant="primary"
+              style={styles.actionButtonFull}
+            />
+          ) : null}
+
+          {inToursPipeline &&
+          isTouringPropertyStatus(property.status) &&
+          !hasTourCompleted(property) &&
+          onMarkToured ? (
+            <PRGButton
+              title="Mark as toured"
+              onPress={onMarkToured}
+              variant="secondary"
+              style={styles.actionButtonFull}
+            />
+          ) : null}
+
+          {inToursPipeline &&
+          isTouringPropertyStatus(property.status) &&
+          hasTourCompleted(property) &&
+          onMarkApplied ? (
+            <PRGButton
+              title={markingApplied ? 'Updating…' : 'Mark as Applied'}
+              onPress={onMarkApplied}
+              variant="secondary"
+              style={styles.actionButtonFull}
+              disabled={markingApplied}
+              accessibilityLabel="Mark as Applied"
+            />
+          ) : null}
+
+          {inToursPipeline && isAppliedPropertyStatus(property.status) ? (
+            <PRGButton
+              title="Choose this place"
+              onPress={() =>
+                router.push(`/(tabs)/properties/${property.id}/convert`)
+              }
+              variant="secondary"
               style={styles.actionButtonFull}
             />
           ) : null}
@@ -682,6 +834,24 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.sm,
     marginBottom: spacing.xs,
   },
+  journeyCard: {
+    marginBottom: spacing.sm,
+  },
+  journeyRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  journeyChip: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  journeyChipText: {
+    fontSize: typography.fontSize.xs,
+    fontFamily: typography.fontFamily.medium,
+  },
   helper: {
     fontSize: typography.fontSize.sm,
     fontFamily: typography.fontFamily.regular,
@@ -714,6 +884,11 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: spacing.sm,
     marginTop: spacing.sm,
+  },
+  applicationActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
   },
   actionButton: {
     minWidth: 80,

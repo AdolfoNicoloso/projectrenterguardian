@@ -36,7 +36,10 @@ export const getSpaces = onRequest(FN_OPTS, async (req, res) => {
       s.status(400).json({error: "Missing propertyId"});
       return;
     }
-    const data = await domain.listSpacesForProperty(ctx.appProfileId, propertyId);
+    const data = await domain.listSpacesForProperty(
+      ctx.appProfileId,
+      propertyId
+    );
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);

@@ -74,3 +74,16 @@ export function createLocalNoteEntry(
     updated_by_name: null,
   };
 }
+
+/** Compact notes body for gallery footer (null when empty). */
+export function formatGalleryNotesText(
+  entries?: NoteEntry[] | null,
+  legacyNotes?: string | null
+): string | null {
+  const list = coerceNotesEntries(entries, legacyNotes);
+  if (list.length === 0) return null;
+  return list
+    .map((e) => e.body.trim())
+    .filter(Boolean)
+    .join('\n\n');
+}

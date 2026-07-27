@@ -319,6 +319,42 @@ export default function InspectionWizardScreen() {
       const doneLabel =
         inspection.inspection_type === 'tour' ? 'Tour documented' : 'Inspection completed';
       showToast(`${doneLabel}!`, 'success');
+
+      if (
+        inspection.inspection_type === 'tour' &&
+        property?.id &&
+        !property.tour_completed_at
+      ) {
+        try {
+          const { propertiesService } = await import(
+            '../../../src/services/propertiesService'
+          );
+          await propertiesService.updateProperty(property.id, {
+            tour_completed_at: new Date().toISOString(),
+            tour_completed_source: 'inspection',
+          });
+          showToast('Tour marked as done', 'success');
+        } catch (markErr) {
+          console.error('Error marking tour completed:', markErr);
+        }
+      }
+
+      if (inspection.inspection_type === 'move_in' && property?.id) {
+        try {
+          const { propertiesService } = await import(
+            '../../../src/services/propertiesService'
+          );
+          await propertiesService.updateProperty(property.id, {
+            move_in_baseline_inspection_id: inspection.id,
+          });
+        } catch (baselineErr) {
+          console.error('Error saving move-in baseline:', baselineErr);
+        }
+        router.replace(
+          `/onboarding/check-in-ready?propertyId=${encodeURIComponent(property.id)}`
+        );
+        return;
+      }
       
       // Navigate to insights
       router.replace('/(tabs)/insights');

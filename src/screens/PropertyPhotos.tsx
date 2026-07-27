@@ -7,6 +7,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { PRGPhotoGrid, PRGEmptyState, useToast, PRGLoadingOverlay, SVGIcon } from '../components';
 import { photosService } from '../services/photosService';
+import { spacesService } from '../services/spacesService';
 import { PHOTO_DOCUMENT_PICKER_TYPES } from '../services/photoUploadService';
 import {
   formatBatchUploadToast,
@@ -17,7 +18,7 @@ import {
 import { capturedAtFromExif } from '../utils/dateTime';
 import { spacing, typography } from '../theme';
 import { useTheme } from '../theme/useTheme';
-import type { Photo } from '../types';
+import type { Photo, Space } from '../types';
 import PlusFillIcon from '../../assets/nav_bar_symbols_final/plus.fill.svg';
 
 interface PropertyPhotosProps {
@@ -33,6 +34,7 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
   const { colors } = useTheme();
   const { showToast } = useToast();
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [spacesById, setSpacesById] = useState<Record<string, Space>>({});
   const [filter, setFilter] = useState<'all' | 'unassigned' | 'assigned'>('all');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -49,11 +51,17 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
         setLoading(true);
       }
       const status = filter === 'all' ? undefined : filter;
-      const data = await photosService.getPhotos(propertyId, {
-        status,
-        fields: 'gallery',
-      });
+      const [data, spaceList] = await Promise.all([
+        photosService.getPhotos(propertyId, {
+          status,
+          fields: 'gallery',
+        }),
+        spacesService.getSpaces(propertyId),
+      ]);
       setPhotos(data);
+      const map: Record<string, Space> = {};
+      for (const s of spaceList) map[s.id] = s;
+      setSpacesById(map);
     } catch (error) {
       console.error('Error loading photos:', error);
       showToast('Failed to load photos', 'error');
@@ -206,11 +214,11 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
         firstErrorMessage
       );
       if (toast) showToast(toast.message, toast.type);
-      await loadPhotos({ soft: true });
     } finally {
       setUploading(false);
       setUploadProgress(null);
     }
+    await loadPhotos({ soft: true });
   };
 
   const uploadPhotos = async (assets: ImagePickerAsset[]) => {
@@ -240,11 +248,11 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
         firstErrorMessage
       );
       if (toast) showToast(toast.message, toast.type);
-      await loadPhotos({ soft: true });
     } finally {
       setUploading(false);
       setUploadProgress(null);
     }
+    await loadPhotos({ soft: true });
   };
 
   const handleUploadPhotos = () => {
@@ -392,9 +400,20 @@ export const PropertyPhotos: React.FC<PropertyPhotosProps> = ({
           <PRGPhotoGrid
             photos={photos}
             selectedIds={[]}
-            onPhotoPress={(photo) => router.push(`/(tabs)/properties/${propertyId}/photos/${photo.id}`)}
+            onPhotoPress={() => {}}
             onPhotoSelect={() => {}}
             showSelection={false}
+            enablePreviewOnTap
+            spaceLabelForPhoto={(photo) =>
+              photo.space
+                ? spacesById[photo.space]?.display_name || 'Assigned'
+                : 'Unassigned'
+            }
+            onEditPhoto={(photoId) =>
+              router.push(
+                `/(tabs)/properties/${propertyId}/photos/${photoId}`
+              )
+            }
           />
         )}
       </ScrollView>
