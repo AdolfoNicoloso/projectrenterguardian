@@ -106,3 +106,41 @@ export async function getReportById(
   }
   return mapReportToClient(doc);
 }
+
+/**
+ * Patch a report (e.g. attach generated PDF media id).
+ * @param {string} appProfileId Caller profile id.
+ * @param {string} reportId Report id.
+ * @param {object} patch Allowed fields (pdf_file).
+ * @return {Promise<Record<string, unknown>>} Updated report.
+ */
+export async function updateReport(
+  appProfileId: string,
+  reportId: string,
+  patch: {pdf_file?: string | null}
+): Promise<Record<string, unknown>> {
+  const ref = db().collection("reports").doc(reportId);
+  const doc = snapToDoc(await ref.get());
+  if (!doc) {
+    throw new Error("NOT_FOUND");
+  }
+  const propId = String(doc.property_id || "");
+  if (!propId) {
+    throw new Error("NOT_FOUND");
+  }
+  await requirePropertyAccess(appProfileId, propId, "edit");
+  const data: Record<string, unknown> = {
+    date_updated: nowIso(),
+  };
+  if (Object.prototype.hasOwnProperty.call(patch, "pdf_file")) {
+    const raw = patch.pdf_file;
+    data.pdf_file =
+      raw != null && String(raw).trim() ? String(raw).trim() : null;
+  }
+  await ref.update(data);
+  const updated = snapToDoc(await ref.get());
+  if (!updated) {
+    throw new Error("Firestore: update report failed");
+  }
+  return mapReportToClient(updated);
+}

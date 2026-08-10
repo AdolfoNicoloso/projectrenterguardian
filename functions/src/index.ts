@@ -73,6 +73,8 @@ export {
   createReport,
   getReports,
   getReportById,
+  updateReport,
+  generateReportPdf,
 } from "./http/reports";
 
 export {

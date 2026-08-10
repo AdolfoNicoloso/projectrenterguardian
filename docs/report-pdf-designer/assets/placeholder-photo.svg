@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-label="Placeholder photo">
+  <rect width="640" height="420" fill="#F0F0F0"/>
+  <rect x="24" y="24" width="592" height="372" fill="#FFFFFF" stroke="#E0E0E0" stroke-width="2"/>
+  <circle cx="320" cy="180" r="48" fill="#E0E0E0"/>
+  <path d="M240 300h160l-40-56-32 40-24-28-64 44z" fill="#C0C0C0"/>
+  <text x="320" y="360" text-anchor="middle" font-family="system-ui,sans-serif" font-size="16" fill="#606060">Placeholder photo</text>
+  <rect x="0" y="0" width="8" height="420" fill="#6F00FF"/>
+</svg>

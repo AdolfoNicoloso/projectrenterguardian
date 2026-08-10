@@ -31,6 +31,16 @@ export const MEDIA_READ_FN_OPTS = {
   timeoutSeconds: 60,
   concurrency: 40,
 };
+/**
+ * PDF generation (snapshot + photo download + Chromium HTML→PDF).
+ */
+export const PDF_FN_OPTS = {
+  region: REGION,
+  cors: true as const,
+  memory: "2GiB" as const,
+  timeoutSeconds: 180,
+  concurrency: 5,
+};
 
 export type Res = {
   set: (name: string, value: string) => void;

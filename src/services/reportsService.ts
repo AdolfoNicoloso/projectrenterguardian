@@ -66,6 +66,37 @@ class ReportsService {
     );
     return response.data;
   }
+
+  /**
+   * Update a report (e.g. attach generated PDF media id).
+   */
+  async updateReport(
+    id: string,
+    updates: { pdf_file?: string | null }
+  ): Promise<Report> {
+    const response = await backendClient.call<{ data: Report }>(
+      'updateReport',
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ id, ...updates }),
+      }
+    );
+    return response.data;
+  }
+
+  /**
+   * Generate (or regenerate) a server PDF for a report snapshot.
+   */
+  async generateReportPdf(reportId: string): Promise<Report> {
+    const response = await backendClient.call<{ data: Report }>(
+      'generateReportPdf',
+      {
+        method: 'POST',
+        body: JSON.stringify({ reportId }),
+      }
+    );
+    return response.data;
+  }
 }
 
 export const reportsService = new ReportsService();

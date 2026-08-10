@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Renter Guardian — Report PDF preview (template_v4)</title>
+    <link rel="stylesheet" href="template_v4.css" />
+  </head>
+  <body class="preview-mode">
+    <div class="preview-chrome">
+      <h1>Report PDF preview</h1>
+      <p>
+        Fills <code>template_v4.html</code> with <code>sample-data.json</code>.
+        Prefer <code>npx serve</code> from this folder if fetch fails on
+        <code>file://</code>. Use Print → PDF to check Letter pagination.
+      </p>
+    </div>
+    <div id="root">Loading preview…</div>
+
+    <script>
+      /** Minimal Handlebars-like renderer: {{path}}, {{#if}}, {{#each}}. */
+      function getPath(obj, path) {
+        if (!path) return obj;
+        return path.split(".").reduce(function (o, k) {
+          return o == null ? undefined : o[k];
+        }, obj);
+      }
+
+      function isTruthy(v) {
+        if (Array.isArray(v)) return v.length > 0;
+        return v !== undefined && v !== null && v !== false && v !== "";
+      }
+
+      function escapeHtml(s) {
+        return String(s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function render(template, data) {
+        var out = "";
+        var i = 0;
+        while (i < template.length) {
+          var open = template.indexOf("{{", i);
+          if (open === -1) {
+            out += template.slice(i);
+            break;
+          }
+          out += template.slice(i, open);
+          var close = template.indexOf("}}", open);
+          if (close === -1) {
+            out += template.slice(open);
+            break;
+          }
+          var tag = template.slice(open + 2, close).trim();
+          i = close + 2;
+
+          if (tag.indexOf("#each ") === 0) {
+            var eachKey = tag.slice(6).trim();
+            var endEach = findBlockEnd(template, i, "each");
+            var eachBody = template.slice(i, endEach.start);
+            var arr = getPath(data, eachKey) || [];
+            if (!Array.isArray(arr)) arr = [];
+            for (var ei = 0; ei < arr.length; ei++) {
+              out += render(eachBody, arr[ei]);
+            }
+            i = endEach.end;
+            continue;
+          }
+
+          if (tag.indexOf("#if ") === 0) {
+            var ifKey = tag.slice(4).trim();
+            var endIf = findBlockEnd(template, i, "if");
+            var ifBody = template.slice(i, endIf.start);
+            if (isTruthy(getPath(data, ifKey))) {
+              out += render(ifBody, data);
+            }
+            i = endIf.end;
+            continue;
+          }
+
+          if (tag.indexOf("/") === 0) {
+            continue;
+          }
+
+          var val = getPath(data, tag);
+          out += val == null ? "" : escapeHtml(val);
+        }
+        return out;
+      }
+
+      function findBlockEnd(template, from, kind) {
+        var openToken = "{{#" + kind;
+        var closeToken = "{{/" + kind;
+        var depth = 1;
+        var pos = from;
+        while (pos < template.length && depth > 0) {
+          var slice = template.slice(pos);
+          var nextOpen = slice.indexOf(openToken);
+          var nextClose = slice.indexOf(closeToken);
+          if (nextClose === -1) {
+            return { start: template.length, end: template.length };
+          }
+          if (nextOpen !== -1 && nextOpen < nextClose) {
+            depth++;
+            pos += nextOpen + openToken.length;
+            continue;
+          }
+          depth--;
+          if (depth === 0) {
+            var abs = pos + nextClose;
+            var closeEnd = template.indexOf("}}", abs) + 2;
+            return { start: abs, end: closeEnd };
+          }
+          pos += nextClose + closeToken.length;
+        }
+        return { start: template.length, end: template.length };
+      }
+
+      var FALLBACK_DATA = {
+        title: "Move-Out — Oak Street Apt",
+        reportTypeLabel: "Move-Out",
+        tenantName: "Alex Rivera",
+        address: "1842 Oak Street, Apt 3B, Austin, TX 78702",
+        nickname: "Oak Street Apt",
+        generatedAt: "2026-07-29T19:42:00.000Z",
+        summaryNotes:
+          "Walked the unit after furniture was removed. Noted existing wear called out at move-in plus a few new scuffs near the entry.",
+        counts: { spaces_count: 3, photos_count: 6, notes_count: 4 },
+        baselineInspectionId: "insp_baseline_demo_001",
+        photosTruncated: true,
+        photoLimit: 40,
+        disclaimer:
+          "This report is user-created documentation for your personal records. It is not legal advice, not a professional inspection, and does not guarantee admissibility in any dispute or proceeding.",
+        spaces: [
+          {
+            spaceId: "space_living",
+            displayName: "Living room",
+            notes:
+              "North wall paint intact. Small scuff near thermostat (~2 in).",
+            comparisonNotes: [
+              {
+                note: "Scuff near thermostat was not present on move-in baseline.",
+                created_at: "2026-07-28T16:10:00.000Z",
+              },
+            ],
+            photos: [
+              {
+                photoId: "photo_lr_1",
+                src: "assets/placeholder-photo.svg",
+                caption: "Living room — facing north",
+              },
+              {
+                photoId: "photo_lr_2",
+                src: "assets/placeholder-photo.svg",
+                caption: "Thermostat wall detail",
+              },
+            ],
+          },
+          {
+            spaceId: "space_kitchen",
+            displayName: "Kitchen",
+            notes: "Cabinets and counters cleared. Sink fixture secure.",
+            comparisonNotes: [],
+            photos: [
+              {
+                photoId: "photo_k_1",
+                src: "assets/placeholder-photo.svg",
+                caption: "Kitchen overview",
+              },
+              {
+                photoId: "photo_k_2",
+                src: "assets/placeholder-photo.svg",
+              },
+            ],
+          },
+          {
+            spaceId: "space_overview",
+            displayName: "Overview / unassigned photos",
+            notes: "",
+            photos: [
+              {
+                photoId: "photo_ov_1",
+                src: "assets/placeholder-photo.svg",
+                caption: "Entry door",
+              },
+              {
+                photoId: "photo_ov_2",
+                src: "assets/placeholder-photo.svg",
+                caption: "Hallway",
+              },
+            ],
+          },
+        ],
+      };
+
+      async function load() {
+        var root = document.getElementById("root");
+        var tplRes = await fetch("template_v4.html").catch(function () {
+          return null;
+        });
+        var dataRes = await fetch("sample-data.json").catch(function () {
+          return null;
+        });
+        var template = tplRes && tplRes.ok ? await tplRes.text() : null;
+        var data =
+          dataRes && dataRes.ok ? await dataRes.json() : FALLBACK_DATA;
+
+        if (!template) {
+          root.textContent =
+            "Could not load template_v4.html. Serve this folder over HTTP (see BRIEF.md).";
+          return;
+        }
+
+        root.innerHTML = render(template, data);
+      }
+
+      load();
+    </script>
+  </body>
+</html>

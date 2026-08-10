@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { PRGButton, PRGCard, PRGBadge, PRGHeader, useToast } from '../../../../../src/components';
 import { reportsService } from '../../../../../src/services/reportsService';
 import { spacing, typography } from '../../../../../src/theme';
@@ -10,11 +10,11 @@ import { formatDisplayDate } from '../../../../../src/utils/dateTime';
 
 export default function ReportPreviewScreen() {
   const { reportId } = useLocalSearchParams<{ reportId: string }>();
-  const router = useRouter();
   const { colors } = useTheme();
   const { showToast } = useToast();
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   useEffect(() => {
     if (reportId) {
@@ -35,10 +35,56 @@ export default function ReportPreviewScreen() {
     }
   };
 
-
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
     return formatDisplayDate(dateString, 'datetime') || 'N/A';
+  };
+
+  const handleOpenPdf = async () => {
+    if (!report?.pdf_file) return;
+    try {
+      const { openReportPdf } = await import(
+        '../../../../../src/services/reportsPdfService'
+      );
+      await openReportPdf(report.pdf_file, `report-${report.id}.pdf`);
+    } catch (err) {
+      console.error('Error opening report PDF:', err);
+      showToast('Unable to open PDF', 'error');
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!report?.pdf_file) return;
+    try {
+      const { downloadReportPdf } = await import(
+        '../../../../../src/services/reportsPdfService'
+      );
+      await downloadReportPdf(report.pdf_file, `report-${report.id}.pdf`);
+    } catch (err) {
+      console.error('Error downloading report PDF:', err);
+      showToast('Unable to download PDF', 'error');
+    }
+  };
+
+  const handleGeneratePdf = async () => {
+    if (!report?.id || pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const { generateReportPdf } = await import(
+        '../../../../../src/services/reportsPdfService'
+      );
+      const updated = await generateReportPdf(report.id);
+      setReport(updated);
+      showToast(
+        updated.pdf_file ? 'PDF ready' : 'PDF generation finished',
+        'success'
+      );
+    } catch (err) {
+      console.error('Error generating report PDF:', err);
+      showToast('Unable to generate PDF. Try again.', 'error');
+    } finally {
+      setPdfBusy(false);
+    }
   };
 
   if (loading) {
@@ -89,23 +135,53 @@ export default function ReportPreviewScreen() {
         </PRGCard>
       )}
 
-      {report.pdf_file ? (
-        <PRGButton
-          title="Open PDF"
-          onPress={() => {
-            showToast('Unable to open PDF yet. Try again after the next update.', 'error');
-          }}
-          variant="primary"
-          style={styles.button}
-        />
-      ) : (
-        <PRGCard>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>PDF export</Text>
-          <Text style={[styles.jsonText, { color: colors.textSecondary }]}>
-            A downloadable PDF will appear here once report export is enabled. Your snapshot above is already saved.
-          </Text>
-        </PRGCard>
-      )}
+      <PRGCard>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>PDF export</Text>
+        <Text style={[styles.jsonText, { color: colors.textSecondary }]}>
+          Downloadable documentation PDF with text and photos from this snapshot.
+        </Text>
+        {report.pdf_file ? (
+          <>
+            <PRGButton
+              title="Open PDF"
+              onPress={() => {
+                void handleOpenPdf();
+              }}
+              variant="primary"
+              style={styles.button}
+              disabled={pdfBusy}
+            />
+            <PRGButton
+              title="Download PDF"
+              onPress={() => {
+                void handleDownloadPdf();
+              }}
+              variant="secondary"
+              style={styles.button}
+              disabled={pdfBusy}
+            />
+            <PRGButton
+              title={pdfBusy ? 'Generating…' : 'Regenerate PDF'}
+              onPress={() => {
+                void handleGeneratePdf();
+              }}
+              variant="ghost"
+              style={styles.button}
+              disabled={pdfBusy}
+            />
+          </>
+        ) : (
+          <PRGButton
+            title={pdfBusy ? 'Generating…' : 'Generate PDF'}
+            onPress={() => {
+              void handleGeneratePdf();
+            }}
+            variant="primary"
+            style={styles.button}
+            disabled={pdfBusy}
+          />
+        )}
+      </PRGCard>
     </ScrollView>
     </View>
   );

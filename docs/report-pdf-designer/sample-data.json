@@ -1,0 +1,77 @@
+{
+  "title": "Move-Out — Oak Street Apt",
+  "reportTypeLabel": "Move-Out",
+  "tenantName": "Alex Rivera",
+  "address": "1842 Oak Street, Apt 3B, Austin, TX 78702",
+  "nickname": "Oak Street Apt",
+  "generatedAt": "2026-07-29T19:42:00.000Z",
+  "summaryNotes": "Walked the unit after furniture was removed. Noted existing wear called out at move-in plus a few new scuffs near the entry.",
+  "counts": {
+    "spaces_count": 3,
+    "photos_count": 6,
+    "notes_count": 4
+  },
+  "baselineInspectionId": "insp_baseline_demo_001",
+  "photosTruncated": true,
+  "photoLimit": 40,
+  "disclaimer": "This report is user-created documentation for your personal records. It is not legal advice, not a professional inspection, and does not guarantee admissibility in any dispute or proceeding.",
+  "spaces": [
+    {
+      "spaceId": "space_living",
+      "displayName": "Living room",
+      "notes": "North wall paint intact. Small scuff near thermostat (~2 in).",
+      "comparisonNotes": [
+        {
+          "note": "Scuff near thermostat was not present on move-in baseline.",
+          "created_at": "2026-07-28T16:10:00.000Z"
+        }
+      ],
+      "photos": [
+        {
+          "photoId": "photo_lr_1",
+          "src": "assets/placeholder-photo.svg",
+          "caption": "Living room — facing north"
+        },
+        {
+          "photoId": "photo_lr_2",
+          "src": "assets/placeholder-photo.svg",
+          "caption": "Thermostat wall detail"
+        }
+      ]
+    },
+    {
+      "spaceId": "space_kitchen",
+      "displayName": "Kitchen",
+      "notes": "Cabinets and counters cleared. Sink fixture secure.",
+      "comparisonNotes": [],
+      "photos": [
+        {
+          "photoId": "photo_k_1",
+          "src": "assets/placeholder-photo.svg",
+          "caption": "Kitchen overview"
+        },
+        {
+          "photoId": "photo_k_2",
+          "src": "assets/placeholder-photo.svg"
+        }
+      ]
+    },
+    {
+      "spaceId": "space_overview",
+      "displayName": "Overview / unassigned photos",
+      "notes": "",
+      "photos": [
+        {
+          "photoId": "photo_ov_1",
+          "src": "assets/placeholder-photo.svg",
+          "caption": "Entry door"
+        },
+        {
+          "photoId": "photo_ov_2",
+          "src": "assets/placeholder-photo.svg",
+          "caption": "Hallway"
+        }
+      ]
+    }
+  ]
+}

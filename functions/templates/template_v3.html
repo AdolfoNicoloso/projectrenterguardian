@@ -1,0 +1,226 @@
+<!--
+  Renter Guardian report PDF template_v3
+  Bindings: docs/report-pdf-designer/DATA_DICTIONARY.md (Handlebars)
+-->
+<article class="report">
+  <footer class="document-footer" aria-label="Document classification">
+    <span>Renter Guardian</span>
+    <span class="footer-separator" aria-hidden="true"></span>
+    <span>User documentation — not legal advice</span>
+    <span class="footer-version">Template v3</span>
+  </footer>
+
+  <section class="page cover-page" aria-labelledby="report-title">
+    <div class="cover-accent" aria-hidden="true"></div>
+
+    <header class="brand-lockup">
+      <img
+        class="brand-logo"
+        src="assets/logo.png"
+        width="40"
+        height="40"
+        alt="Renter Guardian"
+      />
+      <div>
+        <p class="brand-name">Renter Guardian</p>
+        <p class="brand-descriptor">Property condition documentation</p>
+      </div>
+    </header>
+
+    <div class="cover-main">
+      <p class="report-type">{{reportTypeLabel}} report</p>
+      <h1 id="report-title" class="report-title">{{title}}</h1>
+      <p class="cover-address meta-value">{{address}}</p>
+
+      <div class="cover-rule" aria-hidden="true"></div>
+
+      <dl class="cover-meta">
+        {{#if nickname}}
+        <div class="cover-meta-row">
+          <dt>Property</dt>
+          <dd class="meta-value">{{nickname}}</dd>
+        </div>
+        {{/if}}
+        <div class="cover-meta-row">
+          <dt>Prepared for</dt>
+          <dd class="meta-value">{{tenantName}}</dd>
+        </div>
+        <div class="cover-meta-row">
+          <dt>Generated</dt>
+          <dd class="meta-value"><time>{{generatedAt}}</time></dd>
+        </div>
+        {{#if baselineInspectionId}}
+        <div class="cover-meta-row">
+          <dt>Linked baseline</dt>
+          <dd class="meta-value identifier">{{baselineInspectionId}}</dd>
+        </div>
+        {{/if}}
+      </dl>
+    </div>
+
+    <aside class="cover-purpose">
+      <p class="cover-purpose-label">About this report</p>
+      <p>
+        A user-created record of property condition, organized by space with
+        supporting notes and photos.
+      </p>
+    </aside>
+  </section>
+
+  <section class="page summary-page" aria-labelledby="summary-heading">
+    <header class="page-heading">
+      <div>
+        <p class="section-eyebrow">Report overview</p>
+        <h2 id="summary-heading">Summary</h2>
+      </div>
+      <p class="page-heading-context">{{reportTypeLabel}}</p>
+    </header>
+
+    <div class="summary-counts" aria-label="Report counts">
+      <div class="summary-count">
+        <span class="summary-count-value count-value">{{counts.spaces_count}}</span>
+        <span class="summary-count-label">Spaces documented</span>
+      </div>
+      <div class="summary-count">
+        <span class="summary-count-value count-value">{{counts.photos_count}}</span>
+        <span class="summary-count-label">Photos included</span>
+      </div>
+      <div class="summary-count">
+        <span class="summary-count-value count-value">{{counts.notes_count}}</span>
+        <span class="summary-count-label">Notes recorded</span>
+      </div>
+    </div>
+
+    {{#if photosTruncated}}
+    <aside class="notice notice-warning" role="note">
+      <div class="notice-icon" aria-hidden="true">!</div>
+      <div>
+        <p class="notice-title">Photo limit applied</p>
+        <p>
+          This PDF includes up to {{photoLimit}} photos. Any remaining photos
+          stay available in the in-app report.
+        </p>
+      </div>
+    </aside>
+    {{/if}}
+
+    {{#if summaryNotes}}
+    <section class="summary-notes" aria-labelledby="summary-notes-heading">
+      <p class="content-label" id="summary-notes-heading">Your overall notes</p>
+      <p>{{summaryNotes}}</p>
+    </section>
+    {{/if}}
+
+    <section class="contents-block" aria-labelledby="contents-heading">
+      <div class="contents-intro">
+        <p class="content-label" id="contents-heading">Included spaces</p>
+        <p>Sections appear in the same order used in the report.</p>
+      </div>
+      <ol class="space-index">
+        {{#each spaces}}
+        <li>
+          <span class="space-index-number" aria-hidden="true"></span>
+          <span class="space-index-name">{{displayName}}</span>
+        </li>
+        {{/each}}
+      </ol>
+    </section>
+
+    <div class="summary-definition">
+      <p class="content-label">Report details</p>
+      <dl>
+        <div>
+          <dt>Report type</dt>
+          <dd class="meta-value">{{reportTypeLabel}}</dd>
+        </div>
+        <div>
+          <dt>Address</dt>
+          <dd class="meta-value">{{address}}</dd>
+        </div>
+        <div>
+          <dt>Tenant</dt>
+          <dd class="meta-value">{{tenantName}}</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  {{#each spaces}}
+  <section class="page space-page">
+    <header class="page-heading space-heading">
+      <div>
+        <p class="section-eyebrow">Property space</p>
+        <h2 class="space-name">{{displayName}}</h2>
+      </div>
+      <div class="section-number" aria-hidden="true"></div>
+    </header>
+
+    {{#if notes}}
+    <section class="space-notes" aria-labelledby="space-notes-heading">
+      <p class="content-label" id="space-notes-heading">Space notes</p>
+      <p>{{notes}}</p>
+    </section>
+    {{/if}}
+
+    {{#if comparisonNotes}}
+    <section class="comparison" aria-labelledby="comparison-heading">
+      <div class="comparison-heading-row">
+        <p class="content-label" id="comparison-heading">Comparison notes</p>
+        <span class="comparison-badge">Compared with baseline</span>
+      </div>
+      <ol class="comparison-list">
+        {{#each comparisonNotes}}
+        <li>
+          <span class="comparison-marker" aria-hidden="true"></span>
+          <div>
+            <p class="comparison-note">{{note}}</p>
+            {{#if created_at}}
+            <time class="comparison-when">{{created_at}}</time>
+            {{/if}}
+          </div>
+        </li>
+        {{/each}}
+      </ol>
+    </section>
+    {{/if}}
+
+    {{#if photos}}
+    <section class="photos" aria-label="Photos for {{displayName}}">
+      <div class="photos-heading">
+        <p class="content-label">Photo record</p>
+        <p>Images are shown without overlays to preserve the original view.</p>
+      </div>
+      <div class="photo-grid">
+        {{#each photos}}
+        <figure class="photo">
+          <div class="photo-frame">
+            <img src="{{src}}" alt="" />
+          </div>
+          {{#if caption}}
+          <figcaption>{{caption}}</figcaption>
+          {{/if}}
+        </figure>
+        {{/each}}
+      </div>
+    </section>
+    {{/if}}
+  </section>
+  {{/each}}
+
+  <section class="page disclaimer-page" aria-labelledby="disclaimer-heading">
+    <div class="disclaimer-mark" aria-hidden="true">i</div>
+    <div class="disclaimer-content">
+      <p class="section-eyebrow">Important information</p>
+      <h2 id="disclaimer-heading">Disclaimer</h2>
+      <p class="disclaimer-copy">{{disclaimer}}</p>
+
+      <div class="disclaimer-divider" aria-hidden="true"></div>
+
+      <p class="disclaimer-guidance">
+        Keep this report with your original photos, messages, receipts, and
+        other property records. The report reflects information entered by the
+        user at the time it was generated.
+      </p>
+    </div>
+  </section>
+</article>

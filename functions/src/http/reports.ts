@@ -6,6 +6,7 @@ import {onRequest} from "firebase-functions/v2/https";
 import * as domain from "../firestore";
 import {
   FN_OPTS,
+  PDF_FN_OPTS,
   Req,
   Res,
   authed,
@@ -14,6 +15,7 @@ import {
   sendErr,
   setCorsHeaders,
 } from "./helpers";
+import {generateReportPdfForReport} from "../pdf/renderReportPdf";
 
 export const createReport = onRequest(FN_OPTS, async (req, res) => {
   const r = req as unknown as Req;
@@ -103,6 +105,70 @@ export const getReportById = onRequest(FN_OPTS, async (req, res) => {
       s.status(404).json({error: "Report not found"});
       return;
     }
+    s.status(200).json({data});
+  } catch (err: unknown) {
+    sendErr(s, r, err);
+  }
+});
+
+export const updateReport = onRequest(FN_OPTS, async (req, res) => {
+  const r = req as unknown as Req;
+  const s = res as unknown as Res;
+  if (handleCorsPreflight(r, s)) {
+    return;
+  }
+  setCorsHeaders(s, r);
+  try {
+    if (r.method !== "PATCH" && r.method !== "POST") {
+      s.status(405).json({error: "Method not allowed. Use PATCH."});
+      return;
+    }
+    const ctx = await authed(r, s);
+    if (!ctx) {
+      return;
+    }
+    const input = parseBody<{
+      id?: string;
+      pdf_file?: string | null;
+    }>(r.body);
+    if (!input.id) {
+      s.status(400).json({error: "Missing id"});
+      return;
+    }
+    const data = await domain.updateReport(ctx.appProfileId, input.id, {
+      pdf_file: input.pdf_file,
+    });
+    s.status(200).json({data});
+  } catch (err: unknown) {
+    sendErr(s, r, err);
+  }
+});
+
+export const generateReportPdf = onRequest(PDF_FN_OPTS, async (req, res) => {
+  const r = req as unknown as Req;
+  const s = res as unknown as Res;
+  if (handleCorsPreflight(r, s)) {
+    return;
+  }
+  setCorsHeaders(s, r);
+  try {
+    if (r.method !== "POST") {
+      s.status(405).json({error: "Method not allowed. Use POST."});
+      return;
+    }
+    const ctx = await authed(r, s);
+    if (!ctx) {
+      return;
+    }
+    const input = parseBody<{reportId?: string}>(r.body);
+    if (!input.reportId || !String(input.reportId).trim()) {
+      s.status(400).json({error: "Missing reportId"});
+      return;
+    }
+    const data = await generateReportPdfForReport(
+      ctx.appProfileId,
+      String(input.reportId).trim()
+    );
     s.status(200).json({data});
   } catch (err: unknown) {
     sendErr(s, r, err);

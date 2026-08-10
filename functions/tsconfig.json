@@ -8,10 +8,14 @@
     "outDir": "lib",
     "sourceMap": true,
     "strict": true,
-    "target": "es2017"
+    "target": "es2017",
+    // Override expo/tsconfig.base (noEmit: true) so Cloud Functions emit JS.
+    "noEmit": false,
+    "skipLibCheck": true
   },
   "compileOnSave": true,
   "include": [
     "src"
-  ]
+  ],
+  "extends": "expo/tsconfig.base"
 }
