@@ -115,6 +115,8 @@ export const PropertySpaces: React.FC<PropertySpacesProps> = ({
   const pendingIndexRef = useRef<number | null>(null);
   const savingRef = useRef(false);
   const assigningRef = useRef(false);
+  /** Serialize photo move/reorder API so a new drag can start while the previous save finishes. */
+  const assignQueueRef = useRef(Promise.resolve());
   const scrollRef = useRef<ScrollView>(null);
   const scrollYRef = useRef(0);
   const contentHeightRef = useRef(0);
@@ -493,9 +495,10 @@ export const PropertySpaces: React.FC<PropertySpacesProps> = ({
   }, [persistOrder]);
 
   const beginPhotoDrag = useCallback(
-    (photo: Photo, pageX: number, pageY: number) => {
-      if (!canEdit || assigningRef.current || draggingIndexRef.current != null) {
-        return;
+    (photo: Photo, pageX: number, pageY: number): boolean => {
+      // Do not gate on assigningRef — saves can take seconds; blocking makes the next hold-lift a no-op.
+      if (!canEdit || draggingIndexRef.current != null) {
+        return false;
       }
       measureViewport();
       draggingPhotoRef.current = photo;
@@ -515,6 +518,7 @@ export const PropertySpaces: React.FC<PropertySpacesProps> = ({
         y: pageY - wrap.y - 44,
       });
       updatePhotoDropFromPointer();
+      return true;
     },
     [canEdit, measureViewport, floatAnim, updatePhotoDropFromPointer]
   );
@@ -534,6 +538,20 @@ export const PropertySpaces: React.FC<PropertySpacesProps> = ({
     [floatAnim, updateAutoScrollDir, updatePhotoDropFromPointer]
   );
 
+  const enqueuePhotoMutation = useCallback((task: () => Promise<void>) => {
+    const run = assignQueueRef.current.then(async () => {
+      assigningRef.current = true;
+      try {
+        await task();
+      } finally {
+        assigningRef.current = false;
+      }
+    });
+    // Keep the queue alive even if a task fails.
+    assignQueueRef.current = run.catch(() => undefined);
+    return run;
+  }, []);
+
   const endPhotoDrag = useCallback(async () => {
     const photo = draggingPhotoRef.current;
     const target = photoDropTargetRef.current;
@@ -547,7 +565,7 @@ export const PropertySpaces: React.FC<PropertySpacesProps> = ({
     setPhotoDropInsertIndex(null);
     setFloatingThumbUri(null);
 
-    if (!photo || !target || assigningRef.current) return;
+    if (!photo || !target) return;
 
     const fromSpace = photoSourceSpaceId(photo);
 
@@ -575,35 +593,33 @@ export const PropertySpaces: React.FC<PropertySpacesProps> = ({
         ordinal: i,
       }));
 
-      assigningRef.current = true;
+      // Optimistic UI immediately; persist via queue so back-to-back drags stay responsive.
       if (reorderSpace) {
         setPhotosBySpace((prev) => ({ ...prev, [target]: next }));
       } else {
         setUnassignedPhotos(next);
       }
 
-      try {
-        await photosService.reorderPhotos(
-          propertyId,
-          next.map((p) => p.id),
-          reorderSpace ? target : ''
-        );
-        showToast('Photo order updated', 'success');
-      } catch (err: unknown) {
-        const message =
-          err instanceof Error ? err.message : 'Failed to reorder photos';
-        showToast(message, 'error');
-        await loadSpaces({ soft: true });
-      } finally {
-        assigningRef.current = false;
-      }
+      void enqueuePhotoMutation(async () => {
+        try {
+          await photosService.reorderPhotos(
+            propertyId,
+            next.map((p) => p.id),
+            reorderSpace ? target : ''
+          );
+          showToast('Photo order updated', 'success');
+        } catch (err: unknown) {
+          const message =
+            err instanceof Error ? err.message : 'Failed to reorder photos';
+          showToast(message, 'error');
+          await loadSpaces({ soft: true });
+        }
+      });
       return;
     }
 
     if (target === UNASSIGNED_DROP && fromSpace == null) return;
     if (target !== UNASSIGNED_DROP && target === fromSpace) return;
-
-    assigningRef.current = true;
 
     const gap = insertGap ?? Number.MAX_SAFE_INTEGER;
     const sourceBefore =
@@ -648,43 +664,43 @@ export const PropertySpaces: React.FC<PropertySpacesProps> = ({
       return prev.filter((p) => p.id !== photo.id);
     });
 
-    try {
-      if (target === UNASSIGNED_DROP) {
-        await photosService.updatePhoto(photo.id, {
-          space: null as unknown as string,
-          assignment_status: 'unassigned',
-        });
-        showToast('Moved to unassigned', 'success');
-      } else {
-        await assignmentsService.createAssignment(photo.id, target);
-        const spaceName =
-          spacesRef.current.find((s) => s.id === target)?.display_name ??
-          'space';
-        showToast(`Assigned to ${spaceName}`, 'success');
+    void enqueuePhotoMutation(async () => {
+      try {
+        if (target === UNASSIGNED_DROP) {
+          await photosService.updatePhoto(photo.id, {
+            space: null as unknown as string,
+            assignment_status: 'unassigned',
+          });
+          showToast('Moved to unassigned', 'success');
+        } else {
+          await assignmentsService.createAssignment(photo.id, target);
+          const spaceName =
+            spacesRef.current.find((s) => s.id === target)?.display_name ??
+            'space';
+          showToast(`Assigned to ${spaceName}`, 'success');
+        }
+        if (nextTargetOrdered.length > 0) {
+          await photosService.reorderPhotos(
+            propertyId,
+            nextTargetOrdered.map((p) => p.id),
+            target === UNASSIGNED_DROP ? '' : target
+          );
+        }
+        if (nextSourceList.length > 0) {
+          await photosService.reorderPhotos(
+            propertyId,
+            nextSourceList.map((p) => p.id),
+            fromSpace || ''
+          );
+        }
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : 'Failed to move photo';
+        showToast(message, 'error');
+        await loadSpaces({ soft: true });
       }
-      if (nextTargetOrdered.length > 0) {
-        await photosService.reorderPhotos(
-          propertyId,
-          nextTargetOrdered.map((p) => p.id),
-          target === UNASSIGNED_DROP ? '' : target
-        );
-      }
-      if (nextSourceList.length > 0) {
-        await photosService.reorderPhotos(
-          propertyId,
-          nextSourceList.map((p) => p.id),
-          fromSpace || ''
-        );
-      }
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to move photo';
-      showToast(message, 'error');
-      await loadSpaces({ soft: true });
-    } finally {
-      assigningRef.current = false;
-    }
-  }, [loadSpaces, propertyId, showToast]);
+    });
+  }, [enqueuePhotoMutation, loadSpaces, propertyId, showToast, canEdit]);
 
   const panResponder = useMemo(
     () =>
@@ -692,7 +708,9 @@ export const PropertySpaces: React.FC<PropertySpacesProps> = ({
         onStartShouldSetPanResponder: () =>
           pendingIndexRef.current != null || draggingIndexRef.current != null,
         onMoveShouldSetPanResponder: () => draggingIndexRef.current != null,
-        onPanResponderTerminationRequest: () => false,
+        // Refuse only while dragging a space card (ScrollView may still warn in __DEV__).
+        onPanResponderTerminationRequest: () =>
+          draggingIndexRef.current == null,
         onPanResponderGrant: (evt) => {
           const idx = pendingIndexRef.current;
           if (idx == null) return;

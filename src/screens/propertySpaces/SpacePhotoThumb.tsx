@@ -44,7 +44,7 @@ export function SpacePhotoThumb({
   onOpen: (photo: Photo) => void;
   draggable?: boolean;
   isDragging?: boolean;
-  onDragStart?: (photo: Photo, pageX: number, pageY: number) => void;
+  onDragStart?: (photo: Photo, pageX: number, pageY: number) => boolean | void;
   onDragMove?: (pageX: number, pageY: number) => void;
   onDragEnd?: () => void;
 }) {
@@ -135,7 +135,13 @@ export function SpacePhotoThumb({
     dragActiveRef.current = true;
     suppressOpenRef.current = true;
     setArmed(true);
-    onDragStartRef.current?.(photoRef.current, pageX, pageY);
+    const accepted = onDragStartRef.current?.(photoRef.current, pageX, pageY);
+    if (accepted === false) {
+      dragActiveRef.current = false;
+      setArmed(false);
+      heldPastArmRef.current = false;
+      suppressOpenRef.current = false;
+    }
   };
 
   const recordPage = (pageX: number, pageY: number) => {
@@ -215,7 +221,8 @@ export function SpacePhotoThumb({
         if (!(heldPastArmRef.current || dragActiveRef.current)) return false;
         return Math.abs(g.dx) > 0 || Math.abs(g.dy) > 0;
       },
-      onPanResponderTerminationRequest: () => false,
+      // Keep the drag responder during an active lift (RN may still warn in __DEV__).
+      onPanResponderTerminationRequest: () => !dragActiveRef.current,
       onPanResponderGrant: (evt) => {
         clearArmTimer();
         const { pageX, pageY } = evt.nativeEvent;
