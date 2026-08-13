@@ -46,6 +46,14 @@
     },
     "scheme": "renterguardian",
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
       "expo-router",
       [
         "expo-image-picker",
@@ -54,7 +62,8 @@
           "cameraPermission": "Allow Renter Guardian to use the camera to capture condition photos.",
           "microphonePermission": "Allow Renter Guardian to use the microphone when recording videos."
         }
-      ]
+      ],
+      "expo-build-properties"
     ],
     "extra": {
       "router": {

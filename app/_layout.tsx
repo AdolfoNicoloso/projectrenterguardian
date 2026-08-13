@@ -1,8 +1,9 @@
 import 'react-native-gesture-handler';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, usePathname } from 'expo-router';
 import { useEffect } from 'react';
 import { Platform, Text, TextInput } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import * as Linking from 'expo-linking';
 import { useAuthStore } from '../src/state/authStore';
 import { checkGoogleRedirect } from '../src/services/googleAuth';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -12,9 +13,37 @@ import { ThemeProvider, useTheme } from '../src/theme';
 import { typography } from '../src/theme/typography';
 import { FONT_CONFIG } from '../src/theme/fonts';
 
+function isPackagerDeepLink(urlOrPath: string | null | undefined): boolean {
+  if (!urlOrPath) return false;
+  return /127\.0\.0\.1|localhost|:\d{4}\b|expo-development-client|\/--\//i.test(urlOrPath);
+}
+
 function RootLayoutInner() {
   const { checkAuth, signInWithGoogle } = useAuthStore();
   const { isDark } = useTheme();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // Metro / press-i sometimes opens renterguardian://127.0.0.1:8081/--/... as a route.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const initialUrl = await Linking.getInitialURL();
+      if (cancelled) return;
+      if (isPackagerDeepLink(pathname) || isPackagerDeepLink(initialUrl)) {
+        router.replace('/');
+      }
+    })();
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      if (isPackagerDeepLink(url)) {
+        router.replace('/');
+      }
+    });
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, [pathname, router]);
 
   // Set global default font family for Text and TextInput components
   useEffect(() => {
@@ -111,6 +140,7 @@ function RootLayoutInner() {
             <Stack.Screen name="invite/[token]" />
             <Stack.Screen name="share/[token]" />
             <Stack.Screen name="legal/[doc]" />
+            <Stack.Screen name="+not-found" />
           </Stack>
         </NotificationsBootstrap>
       </PRGToastProvider>
